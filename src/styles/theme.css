@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-creme: #EEE4DA;
+  --color-sand: #D8C4AC;
+  --color-dusty-pink: #C8A49F;
+  --color-burgundy: #4D0E13;
+
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", sans-serif;
+}
+
+:root {
+  background-color: var(--color-creme);
+  color: #1A1A1A;
+  font-family: var(--font-sans);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+  color: var(--color-burgundy);
+}
