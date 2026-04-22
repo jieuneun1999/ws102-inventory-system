@@ -1,0 +1,9 @@
+# Cloudflare Pages configuration for liwanag
+
+name = "liwanag"
+type = "javascript"
+account_id = ""
+workers_dev = true
+
+[env.production]
+name = "liwanag"
