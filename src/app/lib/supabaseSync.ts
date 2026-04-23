@@ -1,5 +1,5 @@
 import { MENU_ITEMS } from '../data';
-import type { CartItem, InventoryItem, Order, OrderStatus, Product, Unit, WasteReason } from '../store';
+import type { CartItem, DrinkCustomization, InventoryItem, Order, OrderStatus, Product, Unit, WasteReason } from '../store';
 import { getStoredSession } from './supabaseAuth';
 
 type SupabaseSnapshot = {
@@ -34,6 +34,11 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const isConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 const roundTo2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+const isDrinkCategory = (category: string) => {
+  const normalized = category.trim().toLowerCase();
+  return normalized.includes('beverage') || normalized.includes('coffee') || normalized.includes('tea');
+};
 
 const baseHeaders = {
   apikey: SUPABASE_ANON_KEY ?? '',
@@ -126,6 +131,20 @@ const INBOX_INVENTORY: InventoryItem[] = [
   { id: 'ing-coffee-beans', name: 'Coffee beans (espresso roast)', category: 'Ingredients', stock: 5, unit: 'kg', status: 'normal', reorderLevel: 1 },
   { id: 'ing-ground-coffee', name: 'Ground coffee', category: 'Ingredients', stock: 2, unit: 'kg', status: 'normal', reorderLevel: 0.5 },
   { id: 'ing-vanilla-syrup', name: 'Vanilla syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-caramel-drizzle', name: 'Caramel drizzle', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-hazelnut-syrup', name: 'Hazelnut syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-brown-sugar-syrup', name: 'Brown sugar syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-chocolate-syrup', name: 'Chocolate syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-oat-milk', name: 'Oat milk', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-almond-milk', name: 'Almond milk', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-coconut-milk', name: 'Coconut milk', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-whipped-cream', name: 'Whipped cream', category: 'Ingredients', stock: 1.5, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-cinnamon-powder', name: 'Cinnamon powder', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
+  { id: 'ing-sea-salt-foam', name: 'Sea salt foam', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-matcha-powder', name: 'Matcha powder', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
+  { id: 'ing-cold-foam', name: 'Cold foam', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-honey', name: 'Honey', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-orange-concentrate', name: 'Orange concentrate', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
   { id: 'ing-beef', name: 'Beef', category: 'Ingredients', stock: 5, unit: 'kg', status: 'normal', reorderLevel: 1 },
   { id: 'ing-soy-sauce', name: 'Soy sauce', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
   { id: 'ing-garlic', name: 'Garlic', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
@@ -138,6 +157,32 @@ const INBOX_INVENTORY: InventoryItem[] = [
   { id: 'ing-mayonnaise', name: 'Mayonnaise', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
   { id: 'ing-salt', name: 'Salt', category: 'Ingredients', stock: 1, unit: 'kg', status: 'normal', reorderLevel: 0.25 },
   { id: 'ing-pepper', name: 'Pepper', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
+  { id: 'mat-hot-cup-small', name: 'Hot cups (small)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-hot-cup-medium', name: 'Hot cups (medium)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-hot-cup-large', name: 'Hot cups (large)', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 40 },
+  { id: 'mat-cold-cup-small', name: 'Cold cups (small plastic)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-cold-cup-medium', name: 'Cold cups (medium plastic)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-cold-cup-large', name: 'Cold cups (large plastic)', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 40 },
+  { id: 'mat-coffee-mugs', name: 'Coffee mugs (for dine-in)', category: 'Materials', stock: 40, unit: 'pcs', status: 'normal', reorderLevel: 10 },
+  { id: 'mat-glass-cups', name: 'Glass cups', category: 'Materials', stock: 40, unit: 'pcs', status: 'normal', reorderLevel: 10 },
+  { id: 'mat-paper-cups', name: 'Paper cups', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-cup-sleeves', name: 'Cup sleeves', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-hot-lids', name: 'Cup lids (hot)', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-cold-lids', name: 'Cup lids (cold)', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-dome-lids', name: 'Dome lids (for frappes)', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 40 },
+  { id: 'mat-straws', name: 'Straws (regular)', category: 'Materials', stock: 500, unit: 'pcs', status: 'normal', reorderLevel: 100 },
+  { id: 'mat-jumbo-straws', name: 'Jumbo straws (for frappes)', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
+  { id: 'mat-stir-sticks', name: 'Stir sticks', category: 'Materials', stock: 500, unit: 'pcs', status: 'normal', reorderLevel: 100 },
+  { id: 'mat-plastic-spoons', name: 'Plastic spoons', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
+  { id: 'mat-plastic-forks', name: 'Plastic forks', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
+  { id: 'mat-napkins', name: 'Napkins', category: 'Materials', stock: 1200, unit: 'pcs', status: 'normal', reorderLevel: 250 },
+  { id: 'mat-tissue-paper', name: 'Tissue paper', category: 'Materials', stock: 1200, unit: 'pcs', status: 'normal', reorderLevel: 250 },
+  { id: 'mat-paper-bags', name: 'Paper bags', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 70 },
+  { id: 'mat-plastic-bags', name: 'Plastic bags', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 70 },
+  { id: 'mat-food-containers', name: 'Food containers', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-takeout-boxes', name: 'Take-out boxes', category: 'Materials', stock: 220, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-cup-carriers', name: 'Cup carriers / drink holders', category: 'Materials', stock: 150, unit: 'pcs', status: 'normal', reorderLevel: 30 },
+  { id: 'mat-wrapping-paper', name: 'Wrapping paper', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
 ];
 
 const DEMO_RECIPES = [
@@ -148,6 +193,9 @@ const DEMO_RECIPES = [
   { product_id: 'p1', inventory_item_id: 'ing-butter', amount: 15, unit: 'g' as Unit },
   { product_id: 'p1', inventory_item_id: 'ing-milk', amount: 20, unit: 'ml' as Unit },
   { product_id: 'p1', inventory_item_id: 'ing-cashews', amount: 40, unit: 'g' as Unit },
+  { product_id: 'p1', inventory_item_id: 'mat-food-containers', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'p1', inventory_item_id: 'mat-napkins', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'p1', inventory_item_id: 'mat-paper-bags', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'p2', inventory_item_id: 'ing-flour', amount: 40, unit: 'g' as Unit },
   { product_id: 'p2', inventory_item_id: 'ing-white-sugar', amount: 20, unit: 'g' as Unit },
@@ -155,6 +203,9 @@ const DEMO_RECIPES = [
   { product_id: 'p2', inventory_item_id: 'ing-butter', amount: 10, unit: 'g' as Unit },
   { product_id: 'p2', inventory_item_id: 'ing-milk', amount: 15, unit: 'ml' as Unit },
   { product_id: 'p2', inventory_item_id: 'ing-yeast', amount: 2, unit: 'g' as Unit },
+  { product_id: 'p2', inventory_item_id: 'mat-food-containers', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'p2', inventory_item_id: 'mat-napkins', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'p2', inventory_item_id: 'mat-paper-bags', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'p3', inventory_item_id: 'ing-flour', amount: 20, unit: 'g' as Unit },
   { product_id: 'p3', inventory_item_id: 'ing-white-sugar', amount: 15, unit: 'g' as Unit },
@@ -163,17 +214,37 @@ const DEMO_RECIPES = [
   { product_id: 'p3', inventory_item_id: 'ing-cocoa', amount: 8, unit: 'g' as Unit },
   { product_id: 'p3', inventory_item_id: 'ing-baking-powder', amount: 1, unit: 'g' as Unit },
   { product_id: 'p3', inventory_item_id: 'ing-vanilla-extract', amount: 1, unit: 'ml' as Unit },
+  { product_id: 'p3', inventory_item_id: 'mat-food-containers', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'p3', inventory_item_id: 'mat-napkins', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'p3', inventory_item_id: 'mat-paper-bags', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'b1', inventory_item_id: 'ing-coffee-beans', amount: 15, unit: 'g' as Unit },
+  { product_id: 'b1', inventory_item_id: 'mat-hot-cup-medium', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b1', inventory_item_id: 'mat-hot-lids', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b1', inventory_item_id: 'mat-cup-sleeves', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b1', inventory_item_id: 'mat-stir-sticks', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b1', inventory_item_id: 'mat-napkins', amount: 1, unit: 'pcs' as Unit },
   { product_id: 'b2', inventory_item_id: 'ing-coffee-beans', amount: 9, unit: 'g' as Unit },
+  { product_id: 'b2', inventory_item_id: 'mat-hot-cup-small', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b2', inventory_item_id: 'mat-hot-lids', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b2', inventory_item_id: 'mat-stir-sticks', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'b3', inventory_item_id: 'ing-milk', amount: 150, unit: 'ml' as Unit },
   { product_id: 'b3', inventory_item_id: 'ing-cocoa', amount: 15, unit: 'g' as Unit },
   { product_id: 'b3', inventory_item_id: 'ing-white-sugar', amount: 20, unit: 'g' as Unit },
+  { product_id: 'b3', inventory_item_id: 'mat-hot-cup-medium', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b3', inventory_item_id: 'mat-hot-lids', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b3', inventory_item_id: 'mat-cup-sleeves', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b3', inventory_item_id: 'mat-stir-sticks', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b3', inventory_item_id: 'mat-napkins', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'b4', inventory_item_id: 'ing-milk', amount: 180, unit: 'ml' as Unit },
   { product_id: 'b4', inventory_item_id: 'ing-vanilla-syrup', amount: 10, unit: 'ml' as Unit },
   { product_id: 'b4', inventory_item_id: 'ing-white-sugar', amount: 15, unit: 'g' as Unit },
+  { product_id: 'b4', inventory_item_id: 'mat-cold-cup-medium', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b4', inventory_item_id: 'mat-cold-lids', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b4', inventory_item_id: 'mat-straws', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'b4', inventory_item_id: 'mat-napkins', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'r1', inventory_item_id: 'ing-beef', amount: 150, unit: 'g' as Unit },
   { product_id: 'r1', inventory_item_id: 'ing-soy-sauce', amount: 30, unit: 'ml' as Unit },
@@ -183,6 +254,11 @@ const DEMO_RECIPES = [
   { product_id: 'r1', inventory_item_id: 'ing-rice', amount: 150, unit: 'g' as Unit },
   { product_id: 'r1', inventory_item_id: 'ing-salt', amount: 2, unit: 'g' as Unit },
   { product_id: 'r1', inventory_item_id: 'ing-pepper', amount: 1, unit: 'g' as Unit },
+  { product_id: 'r1', inventory_item_id: 'mat-takeout-boxes', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'r1', inventory_item_id: 'mat-plastic-spoons', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'r1', inventory_item_id: 'mat-plastic-forks', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'r1', inventory_item_id: 'mat-tissue-paper', amount: 2, unit: 'pcs' as Unit },
+  { product_id: 'r1', inventory_item_id: 'mat-plastic-bags', amount: 1, unit: 'pcs' as Unit },
 
   { product_id: 'r2', inventory_item_id: 'ing-pork', amount: 150, unit: 'g' as Unit },
   { product_id: 'r2', inventory_item_id: 'ing-onion', amount: 30, unit: 'g' as Unit },
@@ -195,6 +271,11 @@ const DEMO_RECIPES = [
   { product_id: 'r2', inventory_item_id: 'ing-salt', amount: 2, unit: 'g' as Unit },
   { product_id: 'r2', inventory_item_id: 'ing-pepper', amount: 1, unit: 'g' as Unit },
   { product_id: 'r2', inventory_item_id: 'ing-mayonnaise', amount: 20, unit: 'ml' as Unit },
+  { product_id: 'r2', inventory_item_id: 'mat-takeout-boxes', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'r2', inventory_item_id: 'mat-plastic-spoons', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'r2', inventory_item_id: 'mat-plastic-forks', amount: 1, unit: 'pcs' as Unit },
+  { product_id: 'r2', inventory_item_id: 'mat-tissue-paper', amount: 2, unit: 'pcs' as Unit },
+  { product_id: 'r2', inventory_item_id: 'mat-plastic-bags', amount: 1, unit: 'pcs' as Unit },
 ];
 
 const LEGACY_INVENTORY_IDS = new Set(['1', '2', '3', '4', '5', '6', '7', '8']);
@@ -255,6 +336,7 @@ export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> 
   const nextProducts = (products.length > 0 && !hasLegacyProducts && hasCanonicalProducts
     ? products
     : DEEP_CATALOG) as Product[];
+  const productById = new Map(nextProducts.map((item) => [item.id, item]));
   const nextInventorySource = (inventory.length > 0 && !hasLegacyInventory && hasCanonicalInventory)
     ? inventory
     : INBOX_INVENTORY;
@@ -273,14 +355,20 @@ export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> 
     orderNumber: order.order_number,
     items: orderItemsRaw
       .filter((item) => item.order_id === order.id)
-      .map((item) => ({
-        id: item.id,
-        name: item.product_name,
-        price: Number(item.unit_price),
-        category: 'Coffee',
-        image: '',
-        quantity: item.quantity,
-      })) as CartItem[],
+      .map((item) => {
+        const catalogProduct = productById.get(item.product_id);
+        return {
+          id: item.product_id,
+          cartItemId: item.id,
+          name: item.product_name,
+          price: Number(item.unit_price),
+          basePrice: Number(item.base_price ?? item.unit_price),
+          category: item.product_category ?? catalogProduct?.category ?? 'Beverage',
+          image: catalogProduct?.image ?? '',
+          quantity: item.quantity,
+          customization: (item.customization_json ?? null) as DrinkCustomization | undefined,
+        } as CartItem;
+      }),
     total: Number(order.total),
     status: order.status,
     createdAt: new Date(order.created_at).getTime(),
@@ -349,20 +437,49 @@ export const syncSupabaseOrderCreate = async (order: Order) => {
     },
   ], 'id');
 
-  await request('/rest/v1/order_items', {
-    method: 'POST',
-    headers: {
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(order.items.map((item) => ({
+  const richPayload = order.items.map((item) => {
+    const customization = item.customization ?? null;
+    return {
       order_id: order.id,
       product_id: item.id,
       product_name: item.name,
+      product_category: item.category,
       quantity: item.quantity,
-      unit_price: item.price,
-      line_total: item.price * item.quantity,
-    }))),
+      unit_price: roundTo2(item.price),
+      base_price: roundTo2(item.basePrice ?? item.price),
+      line_total: roundTo2(item.price * item.quantity),
+      sugar_level: customization?.sugarLevel ?? null,
+      size_label: customization?.size ?? null,
+      selected_addons: customization?.addOnIds ?? [],
+      customization_json: customization,
+      is_drink: isDrinkCategory(item.category),
+    };
   });
+
+  try {
+    await request('/rest/v1/order_items', {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(richPayload),
+    });
+  } catch {
+    await request('/rest/v1/order_items', {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(order.items.map((item) => ({
+        order_id: order.id,
+        product_id: item.id,
+        product_name: item.name,
+        quantity: item.quantity,
+        unit_price: roundTo2(item.price),
+        line_total: roundTo2(item.price * item.quantity),
+      }))),
+    });
+  }
 };
 
 export const syncSupabaseOrderStatus = async (orderId: string, status: OrderStatus) => {

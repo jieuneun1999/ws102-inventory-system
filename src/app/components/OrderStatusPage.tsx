@@ -118,7 +118,7 @@ export function OrderStatusPage() {
 
                 <div className="space-y-3 mb-4">
                   {order.items.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center">
+                    <div key={`${item.id}-${item.name}-${item.quantity}`} className="flex justify-between items-center">
                       <div className="flex items-center gap-3">
                         <img
                           src={item.image}

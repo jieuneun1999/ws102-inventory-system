@@ -2,10 +2,12 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, Menu, ShoppingCart, User, LayoutDashboard, LogOut, Bell } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { motion } from 'framer-motion';
+import { useAppStore } from '../store';
 
 export function FloatingNav() {
   const location = useLocation();
   const { user, cart, orders, setUser } = useApp();
+  const setCartOpen = useAppStore((state) => state.setCartOpen);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -70,8 +72,8 @@ export function FloatingNav() {
           <span className="hidden sm:inline">Menu</span>
         </Link>
 
-        <Link
-          to="/cart"
+        <button
+          onClick={() => setCartOpen(true)}
           className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all relative ${
             isActive('/cart') ? '' : 'hover:bg-white/20'
           }`}
@@ -91,7 +93,7 @@ export function FloatingNav() {
               {cartItemsCount}
             </span>
           )}
-        </Link>
+        </button>
 
         {user?.role === 'admin' || user?.role === 'barista' ? (
           <>

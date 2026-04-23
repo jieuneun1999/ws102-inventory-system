@@ -20,8 +20,51 @@ export type Product = {
   ingredients?: string[];
 };
 
+export type SugarLevel = 0 | 25 | 75 | 100;
+export type DrinkSize = 'small' | 'medium' | 'large';
+
+export type AddOn = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  inventoryItemName: string;
+  amount: number;
+  unit: Unit;
+};
+
+export type DrinkCustomization = {
+  size: DrinkSize;
+  sugarLevel: SugarLevel;
+  addOnIds: string[];
+};
+
+export const SUGAR_LEVEL_OPTIONS: SugarLevel[] = [0, 25, 75, 100];
+
+export const DRINK_ADD_ONS: AddOn[] = [
+  { id: 'addon-vanilla-syrup', name: 'Vanilla syrup', description: 'Smooth and classic', price: 20, inventoryItemName: 'Vanilla syrup', amount: 10, unit: 'ml' },
+  { id: 'addon-caramel-drizzle', name: 'Caramel drizzle', description: 'Sweet with slight burnt sugar notes', price: 25, inventoryItemName: 'Caramel drizzle', amount: 10, unit: 'ml' },
+  { id: 'addon-hazelnut-syrup', name: 'Hazelnut syrup', description: 'Nutty and aromatic', price: 25, inventoryItemName: 'Hazelnut syrup', amount: 10, unit: 'ml' },
+  { id: 'addon-brown-sugar-syrup', name: 'Brown sugar syrup', description: 'Richer, milk tea style', price: 20, inventoryItemName: 'Brown sugar syrup', amount: 12, unit: 'ml' },
+  { id: 'addon-chocolate-syrup', name: 'Chocolate syrup', description: 'For mocha style drinks', price: 20, inventoryItemName: 'Chocolate syrup', amount: 12, unit: 'ml' },
+  { id: 'addon-oat-milk', name: 'Oat milk', description: 'Creamy but light', price: 35, inventoryItemName: 'Oat milk', amount: 120, unit: 'ml' },
+  { id: 'addon-almond-milk', name: 'Almond milk', description: 'Slightly nutty and less heavy', price: 35, inventoryItemName: 'Almond milk', amount: 120, unit: 'ml' },
+  { id: 'addon-coconut-milk', name: 'Coconut milk', description: 'Tropical twist', price: 30, inventoryItemName: 'Coconut milk', amount: 120, unit: 'ml' },
+  { id: 'addon-whipped-cream', name: 'Whipped cream', description: 'Extra indulgent', price: 25, inventoryItemName: 'Whipped cream', amount: 25, unit: 'ml' },
+  { id: 'addon-extra-espresso', name: 'Extra espresso shot', description: 'More kick', price: 35, inventoryItemName: 'Coffee beans (espresso roast)', amount: 9, unit: 'g' },
+  { id: 'addon-cinnamon', name: 'Cinnamon powder', description: 'Warm and lightly spicy', price: 15, inventoryItemName: 'Cinnamon powder', amount: 1, unit: 'g' },
+  { id: 'addon-sea-salt-foam', name: 'Sea salt foam', description: 'Sweet and salty combo', price: 35, inventoryItemName: 'Sea salt foam', amount: 30, unit: 'ml' },
+  { id: 'addon-matcha-shot', name: 'Matcha shot', description: 'Coffee + tea twist', price: 40, inventoryItemName: 'Matcha powder', amount: 3, unit: 'g' },
+  { id: 'addon-cold-foam', name: 'Cold foam', description: 'Light frothy topping', price: 30, inventoryItemName: 'Cold foam', amount: 30, unit: 'ml' },
+  { id: 'addon-honey', name: 'Honey', description: 'Natural sweetness', price: 20, inventoryItemName: 'Honey', amount: 10, unit: 'ml' },
+  { id: 'addon-orange', name: 'Orange zest or juice', description: 'Bright citrus coffee pairing', price: 25, inventoryItemName: 'Orange concentrate', amount: 15, unit: 'ml' },
+];
+
 export type CartItem = Product & {
+  cartItemId: string;
+  basePrice: number;
   quantity: number;
+  customization?: DrinkCustomization;
 };
 
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'completed';
@@ -115,7 +158,7 @@ type RecipeIngredient = {
 };
 
 const PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
-  'sansrival cake': [
+  p1: [
     { inventoryName: 'All-purpose flour', amount: 50, unit: 'g' },
     { inventoryName: 'White sugar', amount: 30, unit: 'g' },
     { inventoryName: 'Powdered sugar', amount: 20, unit: 'g' },
@@ -124,7 +167,7 @@ const PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
     { inventoryName: 'Milk', amount: 20, unit: 'ml' },
     { inventoryName: 'Cashew nuts', amount: 40, unit: 'g' },
   ],
-  ensaimada: [
+  p2: [
     { inventoryName: 'All-purpose flour', amount: 40, unit: 'g' },
     { inventoryName: 'White sugar', amount: 20, unit: 'g' },
     { inventoryName: 'Eggs', amount: 0.3, unit: 'pcs' },
@@ -132,7 +175,7 @@ const PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
     { inventoryName: 'Milk', amount: 15, unit: 'ml' },
     { inventoryName: 'Yeast', amount: 2, unit: 'g' },
   ],
-  crinkles: [
+  p3: [
     { inventoryName: 'All-purpose flour', amount: 20, unit: 'g' },
     { inventoryName: 'White sugar', amount: 15, unit: 'g' },
     { inventoryName: 'Powdered sugar', amount: 10, unit: 'g' },
@@ -141,19 +184,19 @@ const PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
     { inventoryName: 'Baking powder', amount: 1, unit: 'g' },
     { inventoryName: 'Vanilla extract', amount: 1, unit: 'ml' },
   ],
-  americano: [{ inventoryName: 'Coffee beans (espresso roast)', amount: 15, unit: 'g' }],
-  espresso: [{ inventoryName: 'Coffee beans (espresso roast)', amount: 9, unit: 'g' }],
-  'hot chocolate': [
+  b1: [{ inventoryName: 'Coffee beans (espresso roast)', amount: 15, unit: 'g' }],
+  b2: [{ inventoryName: 'Coffee beans (espresso roast)', amount: 9, unit: 'g' }],
+  b3: [
     { inventoryName: 'Milk', amount: 150, unit: 'ml' },
     { inventoryName: 'Cocoa powder', amount: 15, unit: 'g' },
     { inventoryName: 'White sugar', amount: 20, unit: 'g' },
   ],
-  'vanilla milk': [
+  b4: [
     { inventoryName: 'Milk', amount: 180, unit: 'ml' },
     { inventoryName: 'Vanilla syrup', amount: 10, unit: 'ml' },
     { inventoryName: 'White sugar', amount: 15, unit: 'g' },
   ],
-  tapsilog: [
+  r1: [
     { inventoryName: 'Beef', amount: 150, unit: 'g' },
     { inventoryName: 'Soy sauce', amount: 30, unit: 'ml' },
     { inventoryName: 'Garlic', amount: 10, unit: 'g' },
@@ -163,7 +206,7 @@ const PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
     { inventoryName: 'Salt', amount: 2, unit: 'g' },
     { inventoryName: 'Pepper', amount: 1, unit: 'g' },
   ],
-  'sizzling sisig': [
+  r2: [
     { inventoryName: 'Pork', amount: 150, unit: 'g' },
     { inventoryName: 'Onion', amount: 30, unit: 'g' },
     { inventoryName: 'Chili', amount: 10, unit: 'g' },
@@ -176,6 +219,119 @@ const PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
     { inventoryName: 'Pepper', amount: 1, unit: 'g' },
     { inventoryName: 'Mayonnaise', amount: 20, unit: 'ml' },
   ],
+};
+
+const PRODUCT_MATERIALS: Record<string, RecipeIngredient[]> = {
+  p1: [
+    { inventoryName: 'Food containers', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Napkins', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Paper bags', amount: 1, unit: 'pcs' },
+  ],
+  p2: [
+    { inventoryName: 'Food containers', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Napkins', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Paper bags', amount: 1, unit: 'pcs' },
+  ],
+  p3: [
+    { inventoryName: 'Food containers', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Napkins', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Paper bags', amount: 1, unit: 'pcs' },
+  ],
+  r1: [
+    { inventoryName: 'Take-out boxes', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Plastic spoons', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Plastic forks', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Tissue paper', amount: 2, unit: 'pcs' },
+    { inventoryName: 'Plastic bags', amount: 1, unit: 'pcs' },
+  ],
+  r2: [
+    { inventoryName: 'Take-out boxes', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Plastic spoons', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Plastic forks', amount: 1, unit: 'pcs' },
+    { inventoryName: 'Tissue paper', amount: 2, unit: 'pcs' },
+    { inventoryName: 'Plastic bags', amount: 1, unit: 'pcs' },
+  ],
+};
+
+const isDrink = (category: string) => {
+  const normalized = category.trim().toLowerCase();
+  return normalized.includes('beverage') || normalized.includes('coffee') || normalized.includes('tea');
+};
+
+const getDrinkDefaultCustomization = (): DrinkCustomization => ({
+  size: 'medium',
+  sugarLevel: 100,
+  addOnIds: [],
+});
+
+const getSizeSurcharge = (size: DrinkSize) => {
+  if (size === 'large') return 30;
+  if (size === 'medium') return 15;
+  return 0;
+};
+
+const sortAddOnIds = (ids: string[]) => [...ids].sort((a, b) => a.localeCompare(b));
+
+const buildCartSignature = (productId: string, customization?: DrinkCustomization) => {
+  if (!customization) return `${productId}:default`;
+  const addOnKey = sortAddOnIds(customization.addOnIds).join(',');
+  return `${productId}:${customization.size}:${customization.sugarLevel}:${addOnKey}`;
+};
+
+const resolveDrinkUnitPrice = (basePrice: number, customization?: DrinkCustomization) => {
+  const selectedCustomization = customization ?? getDrinkDefaultCustomization();
+  const addOnTotal = selectedCustomization.addOnIds.reduce((sum, addOnId) => {
+    const addOn = DRINK_ADD_ONS.find((entry) => entry.id === addOnId);
+    return sum + (addOn?.price ?? 0);
+  }, 0);
+  return roundTo2(basePrice + getSizeSurcharge(selectedCustomization.size) + addOnTotal);
+};
+
+const getCupMaterialName = (customization: DrinkCustomization, hotDrink: boolean) => {
+  if (hotDrink) {
+    if (customization.size === 'small') return 'Hot cups (small)';
+    if (customization.size === 'large') return 'Hot cups (large)';
+    return 'Hot cups (medium)';
+  }
+  if (customization.size === 'small') return 'Cold cups (small plastic)';
+  if (customization.size === 'large') return 'Cold cups (large plastic)';
+  return 'Cold cups (medium plastic)';
+};
+
+const getDrinkMaterialRecipe = (productId: string, customization: DrinkCustomization): RecipeIngredient[] => {
+  const hotDrink = productId !== 'b4';
+  const hasColdFoam = customization.addOnIds.includes('addon-cold-foam');
+  const isLarge = customization.size === 'large';
+
+  const materials: RecipeIngredient[] = [
+    { inventoryName: getCupMaterialName(customization, hotDrink), amount: 1, unit: 'pcs' },
+    { inventoryName: 'Napkins', amount: 1, unit: 'pcs' },
+  ];
+
+  if (hotDrink) {
+    materials.push(
+      { inventoryName: 'Cup lids (hot)', amount: 1, unit: 'pcs' },
+      { inventoryName: 'Cup sleeves', amount: 1, unit: 'pcs' },
+      { inventoryName: 'Stir sticks', amount: 1, unit: 'pcs' }
+    );
+  } else {
+    materials.push({ inventoryName: hasColdFoam ? 'Dome lids (for frappes)' : 'Cup lids (cold)', amount: 1, unit: 'pcs' });
+    materials.push({ inventoryName: hasColdFoam || isLarge ? 'Jumbo straws (for frappes)' : 'Straws (regular)', amount: 1, unit: 'pcs' });
+  }
+
+  if (customization.size === 'large') {
+    materials.push({ inventoryName: 'Cup carriers / drink holders', amount: 1, unit: 'pcs' });
+  }
+
+  return materials;
+};
+
+const getAddOnRecipe = (customization?: DrinkCustomization): RecipeIngredient[] => {
+  if (!customization) return [];
+  return customization.addOnIds
+    .map((addOnId) => DRINK_ADD_ONS.find((entry) => entry.id === addOnId))
+    .filter((entry): entry is AddOn => Boolean(entry))
+    .map((addOn) => ({ inventoryName: addOn.inventoryItemName, amount: addOn.amount, unit: addOn.unit }));
 };
 
 const unitToBase: Record<Unit, number> = {
@@ -232,6 +388,20 @@ const initialInventory: InventoryItem[] = [
   { id: 'ing-coffee-beans', name: 'Coffee beans (espresso roast)', category: 'Ingredients', stock: 5, unit: 'kg', status: 'normal', reorderLevel: 1 },
   { id: 'ing-ground-coffee', name: 'Ground coffee', category: 'Ingredients', stock: 2, unit: 'kg', status: 'normal', reorderLevel: 0.5 },
   { id: 'ing-vanilla-syrup', name: 'Vanilla syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-caramel-drizzle', name: 'Caramel drizzle', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-hazelnut-syrup', name: 'Hazelnut syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-brown-sugar-syrup', name: 'Brown sugar syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-chocolate-syrup', name: 'Chocolate syrup', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-oat-milk', name: 'Oat milk', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-almond-milk', name: 'Almond milk', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-coconut-milk', name: 'Coconut milk', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-whipped-cream', name: 'Whipped cream', category: 'Ingredients', stock: 1.5, unit: 'L', status: 'normal', reorderLevel: 0.5 },
+  { id: 'ing-cinnamon-powder', name: 'Cinnamon powder', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
+  { id: 'ing-sea-salt-foam', name: 'Sea salt foam', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-matcha-powder', name: 'Matcha powder', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
+  { id: 'ing-cold-foam', name: 'Cold foam', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-honey', name: 'Honey', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
+  { id: 'ing-orange-concentrate', name: 'Orange concentrate', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
   { id: 'ing-beef', name: 'Beef', category: 'Ingredients', stock: 5, unit: 'kg', status: 'normal', reorderLevel: 1 },
   { id: 'ing-soy-sauce', name: 'Soy sauce', category: 'Ingredients', stock: 2, unit: 'L', status: 'normal', reorderLevel: 0.5 },
   { id: 'ing-garlic', name: 'Garlic', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
@@ -244,13 +414,40 @@ const initialInventory: InventoryItem[] = [
   { id: 'ing-mayonnaise', name: 'Mayonnaise', category: 'Ingredients', stock: 1, unit: 'L', status: 'normal', reorderLevel: 0.25 },
   { id: 'ing-salt', name: 'Salt', category: 'Ingredients', stock: 1, unit: 'kg', status: 'normal', reorderLevel: 0.25 },
   { id: 'ing-pepper', name: 'Pepper', category: 'Ingredients', stock: 0.5, unit: 'kg', status: 'normal', reorderLevel: 0.1 },
+  { id: 'mat-hot-cup-small', name: 'Hot cups (small)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-hot-cup-medium', name: 'Hot cups (medium)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-hot-cup-large', name: 'Hot cups (large)', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 40 },
+  { id: 'mat-cold-cup-small', name: 'Cold cups (small plastic)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-cold-cup-medium', name: 'Cold cups (medium plastic)', category: 'Materials', stock: 250, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-cold-cup-large', name: 'Cold cups (large plastic)', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 40 },
+  { id: 'mat-coffee-mugs', name: 'Coffee mugs (for dine-in)', category: 'Materials', stock: 40, unit: 'pcs', status: 'normal', reorderLevel: 10 },
+  { id: 'mat-glass-cups', name: 'Glass cups', category: 'Materials', stock: 40, unit: 'pcs', status: 'normal', reorderLevel: 10 },
+  { id: 'mat-paper-cups', name: 'Paper cups', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-cup-sleeves', name: 'Cup sleeves', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-hot-lids', name: 'Cup lids (hot)', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-cold-lids', name: 'Cup lids (cold)', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 60 },
+  { id: 'mat-dome-lids', name: 'Dome lids (for frappes)', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 40 },
+  { id: 'mat-straws', name: 'Straws (regular)', category: 'Materials', stock: 500, unit: 'pcs', status: 'normal', reorderLevel: 100 },
+  { id: 'mat-jumbo-straws', name: 'Jumbo straws (for frappes)', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
+  { id: 'mat-stir-sticks', name: 'Stir sticks', category: 'Materials', stock: 500, unit: 'pcs', status: 'normal', reorderLevel: 100 },
+  { id: 'mat-plastic-spoons', name: 'Plastic spoons', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
+  { id: 'mat-plastic-forks', name: 'Plastic forks', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
+  { id: 'mat-napkins', name: 'Napkins', category: 'Materials', stock: 1200, unit: 'pcs', status: 'normal', reorderLevel: 250 },
+  { id: 'mat-tissue-paper', name: 'Tissue paper', category: 'Materials', stock: 1200, unit: 'pcs', status: 'normal', reorderLevel: 250 },
+  { id: 'mat-paper-bags', name: 'Paper bags', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 70 },
+  { id: 'mat-plastic-bags', name: 'Plastic bags', category: 'Materials', stock: 300, unit: 'pcs', status: 'normal', reorderLevel: 70 },
+  { id: 'mat-food-containers', name: 'Food containers', category: 'Materials', stock: 200, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-takeout-boxes', name: 'Take-out boxes', category: 'Materials', stock: 220, unit: 'pcs', status: 'normal', reorderLevel: 50 },
+  { id: 'mat-cup-carriers', name: 'Cup carriers / drink holders', category: 'Materials', stock: 150, unit: 'pcs', status: 'normal', reorderLevel: 30 },
+  { id: 'mat-wrapping-paper', name: 'Wrapping paper', category: 'Materials', stock: 350, unit: 'pcs', status: 'normal', reorderLevel: 80 },
 ];
 
 interface AppState {
   cart: CartItem[];
-  addToCart: (product: Product) => void;
-  removeFromCart: (id: string) => void;
-  updateQuantity: (id: string, quantity: number) => void;
+  addToCart: (product: Product, customization?: DrinkCustomization) => void;
+  removeFromCart: (cartItemId: string) => void;
+  updateQuantity: (cartItemId: string, quantity: number) => void;
+  updateCartItemCustomization: (cartItemId: string, customization: DrinkCustomization) => void;
   cartOpen: boolean;
   setCartOpen: (open: boolean) => void;
   cartTotal: () => number;
@@ -297,28 +494,84 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       cart: [],
-      addToCart: (product) =>
+      addToCart: (product, providedCustomization) =>
         set((state) => {
-          const existing = state.cart.find((item) => item.id === product.id);
+          const drink = isDrink(product.category);
+          const customization = drink ? (providedCustomization ?? getDrinkDefaultCustomization()) : undefined;
+          const signature = buildCartSignature(product.id, customization);
+          const existing = state.cart.find((item) => buildCartSignature(item.id, item.customization) === signature);
           if (existing) {
             return {
               cart: state.cart.map((item) =>
-                item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+                item.cartItemId === existing.cartItemId ? { ...item, quantity: item.quantity + 1 } : item
               ),
             };
           }
-          return { cart: [...state.cart, { ...product, quantity: 1 }] };
+          const basePrice = product.price;
+          const price = drink ? resolveDrinkUnitPrice(basePrice, customization) : basePrice;
+          return {
+            cart: [
+              ...state.cart,
+              {
+                ...product,
+                cartItemId: createId('cart'),
+                basePrice,
+                price,
+                quantity: 1,
+                customization,
+              },
+            ],
+          };
         }),
-      removeFromCart: (id) =>
+      removeFromCart: (cartItemId) =>
         set((state) => ({
-          cart: state.cart.filter((item) => item.id !== id),
+          cart: state.cart.filter((item) => item.cartItemId !== cartItemId),
         })),
-      updateQuantity: (id, quantity) =>
+      updateQuantity: (cartItemId, quantity) =>
         set((state) => ({
           cart: state.cart
-            .map((item) => (item.id === id ? { ...item, quantity: Math.max(0, quantity) } : item))
+            .map((item) => (item.cartItemId === cartItemId ? { ...item, quantity: Math.max(0, quantity) } : item))
             .filter((item) => item.quantity > 0),
         })),
+      updateCartItemCustomization: (cartItemId, customization) =>
+        set((state) => {
+          const target = state.cart.find((item) => item.cartItemId === cartItemId);
+          if (!target || !isDrink(target.category)) return state;
+
+          const nextPrice = resolveDrinkUnitPrice(target.basePrice, customization);
+          const updatedItem: CartItem = {
+            ...target,
+            customization: {
+              size: customization.size,
+              sugarLevel: customization.sugarLevel,
+              addOnIds: sortAddOnIds(customization.addOnIds),
+            },
+            price: nextPrice,
+          };
+
+          const targetSignature = buildCartSignature(updatedItem.id, updatedItem.customization);
+          const mergeCandidate = state.cart.find(
+            (item) =>
+              item.cartItemId !== cartItemId &&
+              buildCartSignature(item.id, item.customization) === targetSignature
+          );
+
+          if (!mergeCandidate) {
+            return {
+              cart: state.cart.map((item) => (item.cartItemId === cartItemId ? updatedItem : item)),
+            };
+          }
+
+          return {
+            cart: state.cart
+              .filter((item) => item.cartItemId !== cartItemId)
+              .map((item) =>
+                item.cartItemId === mergeCandidate.cartItemId
+                  ? { ...item, quantity: item.quantity + target.quantity }
+                  : item
+              ),
+          };
+        }),
       cartOpen: false,
       setCartOpen: (open) => set({ cartOpen: open }),
       cartTotal: () => {
@@ -401,8 +654,28 @@ export const useAppStore = create<AppState>()(
             nextBatches = { ...state.inventoryBatches };
 
             target.items.forEach((orderItem) => {
-              const recipe = PRODUCT_RECIPES[orderItem.name.toLowerCase()];
-              if (!recipe) return;
+              const baseRecipe = PRODUCT_RECIPES[orderItem.id] ?? [];
+              const materialRecipe = PRODUCT_MATERIALS[orderItem.id] ?? [];
+              const drinkCustomization = orderItem.customization ?? getDrinkDefaultCustomization();
+              const drinkMaterials = isDrink(orderItem.category)
+                ? getDrinkMaterialRecipe(orderItem.id, drinkCustomization)
+                : [];
+              const addOnRecipe = isDrink(orderItem.category) ? getAddOnRecipe(orderItem.customization) : [];
+              const recipe = [...baseRecipe, ...materialRecipe, ...drinkMaterials, ...addOnRecipe].map((ingredient) => {
+                if (
+                  isDrink(orderItem.category) &&
+                  ingredient.inventoryName.toLowerCase() === 'white sugar' &&
+                  orderItem.customization
+                ) {
+                  return {
+                    ...ingredient,
+                    amount: roundTo2(ingredient.amount * (orderItem.customization.sugarLevel / 100)),
+                  };
+                }
+                return ingredient;
+              });
+
+              if (recipe.length === 0) return;
 
               recipe.forEach((ingredient) => {
                 const idx = nextInventory.findIndex(
@@ -925,7 +1198,14 @@ export const useAppStore = create<AppState>()(
             ? currentState.inventory
             : sourceInventory;
 
-          return selectedInventory.map((item: any) => ({
+          const mergedInventory = [
+            ...selectedInventory,
+            ...currentState.inventory.filter(
+              (item) => !selectedInventory.some((existing: any) => String(existing?.id) === item.id)
+            ),
+          ];
+
+          return mergedInventory.map((item: any) => ({
             ...item,
             stock: roundTo2(Number(item.stock ?? 0)),
             reorderLevel: roundTo2(Number(item.reorderLevel ?? item.reorder_level ?? 0)),

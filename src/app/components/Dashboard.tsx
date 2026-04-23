@@ -268,7 +268,7 @@ export function Dashboard() {
                     </div>
                     <div className="space-y-2 mb-4">
                       {order.items.map((item) => (
-                        <div key={item.id} className="flex justify-between">
+                        <div key={`${item.id}-${item.name}-${item.quantity}`} className="flex justify-between">
                           <span style={{ color: 'var(--coffee-brown)' }}>
                             {item.name} x{item.quantity}
                           </span>

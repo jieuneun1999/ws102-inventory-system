@@ -1,11 +1,14 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { useAppStore } from '../store';
-import { ArrowRight, ShoppingBag, Leaf, Coffee } from 'lucide-react';
+import { ArrowRight, ShoppingBag, Leaf, Coffee, Sparkles } from 'lucide-react';
 import { Link } from 'react-router';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { DrinkCustomizationModal } from '../components/DrinkCustomizationModal';
+import type { DrinkCustomization, Product } from '../store';
 
 export function Home() {
   const { addToCart, products } = useAppStore();
+  const [customizingProduct, setCustomizingProduct] = useState<(Product & { name: string }) | null>(null);
   const heroRef = useRef(null);
   const bestSellers = [products[1], products[4], products[7]].filter(Boolean);
   const baristaChoice = products[0] ?? products[1];
@@ -29,6 +32,10 @@ export function Home() {
   const itemVariants = {
     hidden: { opacity: 0, y: 30, filter: 'blur(5px)' },
     show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.8, ease: [0.25, 0.1, 0.25, 1] } }
+  };
+
+  const handleCustomAdd = (item: Product, customization: DrinkCustomization) => {
+    addToCart(item, customization);
   };
 
   return (
@@ -141,15 +148,28 @@ export function Home() {
                 
                 {/* Floating Add to cart overlay */}
                 <div className="absolute inset-0 bg-[#4D0E13]/0 group-hover:bg-[#4D0E13]/20 transition-colors duration-500 flex items-center justify-center">
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      addToCart(item);
-                    }}
-                    className="translate-y-8 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 bg-[#EEE4DA] text-[#4D0E13] px-6 py-3 rounded-full font-medium tracking-wider uppercase text-xs shadow-xl transition-all duration-300 hover:scale-105 flex items-center gap-2"
-                  >
-                    <ShoppingBag size={14} /> Add
-                  </button>
+                  <div className="translate-y-8 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 flex flex-col items-center gap-2 transition-all duration-300">
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        addToCart(item);
+                      }}
+                      className="bg-[#EEE4DA] text-[#4D0E13] px-6 py-3 rounded-full font-medium tracking-wider uppercase text-xs shadow-xl transition-all duration-300 hover:scale-105 flex items-center gap-2"
+                    >
+                      <ShoppingBag size={14} /> Add
+                    </button>
+                    {item.category === 'Beverage' && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setCustomizingProduct(item);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-[#EEE4DA]/60 bg-white/10 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#EEE4DA] backdrop-blur-sm transition-all duration-300 hover:bg-white/15"
+                      >
+                        <Sparkles size={13} /> Customize
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -163,6 +183,18 @@ export function Home() {
           ))}
         </div>
       </section>
+
+      <DrinkCustomizationModal
+        open={Boolean(customizingProduct)}
+        product={customizingProduct}
+        onClose={() => setCustomizingProduct(null)}
+        onSave={(customization) => {
+          if (!customizingProduct) return;
+          handleCustomAdd(customizingProduct, customization);
+          setCustomizingProduct(null);
+        }}
+        confirmLabel="Add to cart"
+      />
 
       {/* Barista's Choice - Full Bleed Split */}
       <section className="my-24 max-w-[1400px] mx-auto px-4 md:px-8">

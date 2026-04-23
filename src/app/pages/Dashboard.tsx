@@ -53,12 +53,12 @@ export function Dashboard() {
   }
 
   return (
-    <div className="relative z-10 flex h-full max-w-[1600px] mx-auto px-6 gap-8 pb-10">
+    <div className="relative z-10 flex min-h-screen max-w-[1600px] mx-auto px-6 gap-8 pb-10">
       {/* Fixed Left Sidebar */}
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full overflow-y-auto hide-scrollbar">
+      <main className="flex-1 flex flex-col">
         <AnimatePresence mode="wait">
           {activeView === 'overview' && (
             <motion.div

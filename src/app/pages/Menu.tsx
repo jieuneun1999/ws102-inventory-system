@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore, Product } from '../store';
-import { Search, ShoppingCart, SlidersHorizontal } from 'lucide-react';
+import { Search, ShoppingCart, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
+import { DrinkCustomizationModal } from '../components/DrinkCustomizationModal';
+import type { DrinkCustomization } from '../store';
 
 const CATEGORY_ORDER = ['Pastry', 'Beverage', 'Rice Meal', 'Merchandise'] as const;
 
@@ -29,6 +31,7 @@ const normalizeCategory = (category: string) => {
 export function Menu() {
   const [activeCategory, setActiveCategory] = useState('All Items');
   const [search, setSearch] = useState('');
+  const [customizingProduct, setCustomizingProduct] = useState<(Product & { displayName: string }) | null>(null);
   const { addToCart, products } = useAppStore();
 
   const categorizedProducts = products.map((item) => ({
@@ -55,15 +58,20 @@ export function Menu() {
     });
   };
 
+  const handleCustomAdd = (item: Product & { displayName: string }, customization: DrinkCustomization) => {
+    addToCart(item, customization);
+    toast.success(`${item.displayName} customized and added to order!`, {
+      style: { background: '#F5EFE6', color: '#4D0E13', border: '1px solid rgba(77,14,19,0.1)' },
+    });
+  };
+
   const filteredItems = categorizedProducts.filter((item) => {
     const matchesCategory = activeCategory === 'All Items' || item.displayCategory === activeCategory;
     const matchesSearch = item.displayName.toLowerCase().includes(search.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
-  const featuredItem = categorizedProducts.find((item) => item.id === 'b1') ?? categorizedProducts[0];
-  const gridItems = filteredItems.filter(item => item.id !== featuredItem?.id);
-  const hasFeaturedImage = Boolean(featuredItem?.image);
+  const gridItems = filteredItems;
 
   const renderProductLayer = (item: typeof categorizedProducts[number]) => {
     const initials = item.displayName
@@ -134,7 +142,7 @@ export function Menu() {
       </div>
 
       {/* Menu Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-20 lg:gap-x-6 lg:gap-y-24 mt-2">
+      <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3 lg:gap-y-16">
         <AnimatePresence mode="popLayout">
           {gridItems.map((item, i) => (
             <motion.div
@@ -144,44 +152,66 @@ export function Menu() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: -16 }}
               transition={{ duration: 0.35, delay: i * 0.04 }}
-              className="relative pt-8 flex flex-col items-center transition-all duration-500 hover:-translate-y-2 sm:pt-10"
+              className="relative flex flex-col items-center pt-10 transition-all duration-500 hover:-translate-y-1 sm:pt-11"
             >
               {/* Product Image - Minimal White Border */}
-              <div className="absolute left-1/2 -top-4 z-20 h-40 w-40 -translate-x-1/2 rounded-full overflow-hidden ring-1 ring-white/40 sm:-top-5 sm:h-44 sm:w-44">
+              <div className="absolute left-1/2 -top-8 z-20 h-44 w-44 -translate-x-1/2 rounded-full overflow-hidden ring-1 ring-white/50 shadow-[0_12px_26px_rgba(77,14,19,0.14)] sm:h-52 sm:w-52">
                 <div className="h-full w-full bg-gradient-to-br from-[#EADDD1]/30 to-[#F5EFE6]">
                   {renderProductLayer(item)}
                 </div>
               </div>
 
-              {/* Card Body with Title Inside */}
-              <div className="group relative w-full flex min-h-[300px] flex-col rounded-[1.8rem] border border-white/60 bg-white/55 px-4 pb-4 pt-28 shadow-[0_8px_30px_rgba(77,14,19,0.06)] backdrop-blur-xl transition-all duration-500 hover:shadow-[0_12px_40px_rgba(77,14,19,0.1)] sm:min-h-[320px] sm:px-4.5 sm:pb-4.5 sm:pt-[7rem]">
-                {/* Product Title - Inside Card */}
-                <div className="mb-3 text-center">
-                  <h3 className="font-serif text-[1.15rem] font-semibold leading-tight text-[#4D0E13] sm:text-[1.2rem]">
+              {/* Card Body with 3 fixed zones: heading, content, footer */}
+              <div className="group relative flex w-full min-h-[336px] flex-col rounded-[1.6rem] border border-white/70 bg-white/60 px-4 pb-4 pt-[7.4rem] shadow-[0_14px_30px_rgba(77,14,19,0.08)] backdrop-blur-xl transition-all duration-500 hover:shadow-[0_18px_36px_rgba(77,14,19,0.12)] sm:min-h-[352px] sm:px-5 sm:pb-4.5 sm:pt-[8.2rem]">
+                {/* Zone 1: Title + Meta */}
+                <div className="mb-2.5 min-h-[62px] text-center">
+                  <h3 className="font-serif text-[1.16rem] font-semibold leading-tight text-[#4D0E13] sm:text-[1.22rem]">
                     {item.displayName}
                   </h3>
-                  <p className="mt-1 text-xs font-medium text-[#4D0E13]/50">
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4D0E13]/45">
                     {item.displayCategory}
                   </p>
                 </div>
 
-                <div className="flex-1">
-                  <p className="line-clamp-2 text-sm leading-relaxed text-[#4D0E13]/65 sm:text-[0.85rem]">
+                {/* Zone 2: Description */}
+                <div className="min-h-[52px] flex-1">
+                  <p className="line-clamp-2 text-[12.5px] leading-relaxed text-[#4D0E13]/62 sm:text-[0.83rem]">
                     {item.description}
                   </p>
                 </div>
 
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <span className="font-serif text-[1.25rem] font-bold text-[#4D0E13] whitespace-nowrap sm:text-[1.35rem]">
-                    ₱ {item.price}
-                  </span>
+                {/* Zone 3: Footer */}
+                <div className="mt-4 border-t border-[#D8C4AC]/45 pt-3.5">
+                  <div className="mb-2.5 flex items-center justify-between gap-3">
+                    <span className="font-serif text-[1.24rem] font-bold whitespace-nowrap text-[#4D0E13] sm:text-[1.34rem]">
+                      ₱ {item.price}
+                    </span>
+                    <span className="rounded-full border border-[#D8C4AC]/55 bg-[#F5EFE6]/70 px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[#4D0E13]/55">
+                      Freshly made
+                    </span>
+                  </div>
 
                   <button
                     onClick={() => handleAdd(item)}
-                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 border border-white text-[#4D0E13] shadow-sm transition-colors hover:bg-[#4D0E13] hover:text-[#F5EFE6] sm:h-13 sm:w-13"
+                    className="flex h-10.5 w-full items-center justify-center gap-2 rounded-full bg-[#4D0E13] text-[13px] font-semibold text-[#F5EFE6] shadow-[0_10px_22px_rgba(77,14,19,0.2)] transition-colors hover:bg-[#3a0a0e]"
                   >
-                    <ShoppingCart size={20} strokeWidth={2.5} className="sm:size-[22px]" />
+                    <ShoppingCart size={15} strokeWidth={2.4} />
+                    <span className="tracking-wide">Add to Order</span>
                   </button>
+
+                  <div className="mt-1.5 flex h-6 items-center justify-center">
+                    {item.displayCategory === 'Beverage' ? (
+                      <button
+                        onClick={() => setCustomizingProduct(item)}
+                        className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4D0E13]/70 transition-colors hover:text-[#4D0E13]"
+                      >
+                        <Sparkles size={12} />
+                        <span>Customize</span>
+                      </button>
+                    ) : (
+                      <span className="select-none text-[11px] opacity-0">Customize</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -195,6 +225,18 @@ export function Menu() {
           </div>
         )}
       </div>
+
+      <DrinkCustomizationModal
+        open={Boolean(customizingProduct)}
+        product={customizingProduct}
+        onClose={() => setCustomizingProduct(null)}
+        onSave={(customization) => {
+          if (!customizingProduct) return;
+          handleCustomAdd(customizingProduct, customization);
+          setCustomizingProduct(null);
+        }}
+        confirmLabel="Add to cart"
+      />
     </div>
   );
 }

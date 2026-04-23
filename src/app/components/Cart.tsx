@@ -1,18 +1,34 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useAppStore } from '../store';
+import { type OrderType, useAppStore } from '../store';
 import { X, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { DrinkCustomizationModal } from './DrinkCustomizationModal';
+import { DRINK_ADD_ONS, type CartItem } from '../store';
 
 export function Cart() {
-  const { cart, cartOpen, setCartOpen, updateQuantity, removeFromCart, cartTotal, addToCart, createOrder, clearCart, products } = useAppStore();
+  const {
+    cart,
+    cartOpen,
+    setCartOpen,
+    updateQuantity,
+    removeFromCart,
+    updateCartItemCustomization,
+    cartTotal,
+    addToCart,
+    createOrder,
+    clearCart,
+    products,
+  } = useAppStore();
   const navigate = useNavigate();
+  const [customizingItem, setCustomizingItem] = useState<CartItem | null>(null);
+  const [orderType, setOrderType] = useState<OrderType>('pickup');
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
-    const orderId = createOrder('pickup');
+    const orderId = createOrder(orderType);
     clearCart();
     toast.success('Order placed successfully! Track your order progress.', {
       style: { background: '#F5EFE6', color: '#4D0E13', border: '1px solid rgba(77,14,19,0.1)' },
@@ -25,7 +41,7 @@ export function Cart() {
   const total = subtotal;
 
   // Recommendations: Just taking the pastries for "You might also like"
-  const recommendations = products.filter(item => item.category === 'Pastries');
+  const recommendations = products.filter(item => item.category === 'Pastry');
 
   return (
     <AnimatePresence>
@@ -71,7 +87,7 @@ export function Cart() {
                   <AnimatePresence mode="popLayout">
                     {cart.map((item) => (
                       <motion.div 
-                        key={item.id} 
+                        key={item.cartItemId} 
                         layout
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
@@ -84,20 +100,39 @@ export function Cart() {
                         
                         <div className="flex-1 flex flex-col justify-center">
                           <h4 className="font-serif text-[#4D0E13] font-medium text-sm leading-tight mb-1">{item.name}</h4>
+                          {item.customization && (
+                            <p className="mb-1 text-[11px] text-[#4D0E13]/60">
+                              {item.customization.size} | {item.customization.sugarLevel}% sugar
+                              {item.customization.addOnIds.length > 0
+                                ? ` | ${item.customization.addOnIds
+                                    .map((id) => DRINK_ADD_ONS.find((entry) => entry.id === id)?.name)
+                                    .filter(Boolean)
+                                    .join(', ')}`
+                                : ''}
+                            </p>
+                          )}
                           <p className="text-[#4D0E13]/60 font-bold text-xs font-serif">₱ {item.price}</p>
+                          {item.category === 'Beverage' && (
+                            <button
+                              onClick={() => setCustomizingItem(item)}
+                              className="mt-1 w-fit text-[11px] font-semibold text-[#4D0E13] underline-offset-2 hover:underline"
+                            >
+                              Customize
+                            </button>
+                          )}
                         </div>
                         
                         <div className="flex items-center gap-3">
                           <div className="flex items-center bg-white/80 rounded-full shadow-sm border border-white px-2 py-1 gap-3">
-                            <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="text-[#4D0E13]/50 hover:text-[#4D0E13]">
+                            <button onClick={() => updateQuantity(item.cartItemId, item.quantity - 1)} className="text-[#4D0E13]/50 hover:text-[#4D0E13]">
                               <Minus size={12} strokeWidth={3} />
                             </button>
                             <span className="text-xs font-bold text-[#4D0E13] w-2 text-center">{item.quantity}</span>
-                            <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="text-[#4D0E13]/50 hover:text-[#4D0E13]">
+                            <button onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)} className="text-[#4D0E13]/50 hover:text-[#4D0E13]">
                               <Plus size={12} strokeWidth={3} />
                             </button>
                           </div>
-                          <button onClick={() => removeFromCart(item.id)} className="text-[#D9534F]/60 hover:text-[#D9534F] p-1.5 transition-colors">
+                          <button onClick={() => removeFromCart(item.cartItemId)} className="text-[#D9534F]/60 hover:text-[#D9534F] p-1.5 transition-colors">
                             <Trash2 size={16} strokeWidth={2} />
                           </button>
                         </div>
@@ -133,10 +168,40 @@ export function Cart() {
             </div>
 
             <div className="p-8 pt-0 mt-auto">
+              <div className="mb-5 rounded-2xl border border-[#D8C4AC]/50 bg-white/70 p-3 shadow-sm">
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[#4D0E13]/55">Order type</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setOrderType('pickup')}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${
+                      orderType === 'pickup'
+                        ? 'bg-[#4D0E13] text-[#F5EFE6] shadow-md'
+                        : 'bg-white text-[#4D0E13]/70 border border-[#D8C4AC]/60'
+                    }`}
+                  >
+                    Pickup
+                  </button>
+                  <button
+                    onClick={() => setOrderType('delivery')}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${
+                      orderType === 'delivery'
+                        ? 'bg-[#4D0E13] text-[#F5EFE6] shadow-md'
+                        : 'bg-white text-[#4D0E13]/70 border border-[#D8C4AC]/60'
+                    }`}
+                  >
+                    Delivery
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-3 mb-6 text-sm">
                 <div className="flex justify-between text-[#4D0E13]/60 font-medium">
                   <span>Subtotal</span>
                   <span className="font-serif text-[#4D0E13]">₱ {subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-[#4D0E13]/60 font-medium">
+                  <span>Fulfillment</span>
+                  <span className="font-semibold text-[#4D0E13] capitalize">{orderType}</span>
                 </div>
                 <div className="border-t border-[#D8C4AC]/40 pt-3 flex justify-between items-center text-[#4D0E13]">
                   <span className="font-bold text-lg">Total</span>
@@ -144,26 +209,28 @@ export function Cart() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <button
-                  onClick={handleCheckout}
-                  disabled={cart.length === 0}
-                  className="w-full bg-[#4D0E13] text-[#F5EFE6] py-3.5 rounded-full font-bold tracking-wide text-sm shadow-lg shadow-[#4D0E13]/20 hover:bg-[#3a0a0e] hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
-                >
-                  Checkout
-                </button>
-                <button
-                  onClick={() => {
-                    setCartOpen(false);
-                    navigate('/cart');
-                  }}
-                  className="w-full bg-transparent text-[#4D0E13]/60 hover:text-[#4D0E13] py-3.5 rounded-full font-bold tracking-wide text-sm transition-colors border border-transparent hover:border-[#D8C4AC]/40"
-                >
-                  View Cart
-                </button>
-              </div>
+              <button
+                onClick={handleCheckout}
+                disabled={cart.length === 0}
+                className="w-full bg-[#4D0E13] text-[#F5EFE6] py-3.5 rounded-full font-bold tracking-wide text-sm shadow-lg shadow-[#4D0E13]/20 hover:bg-[#3a0a0e] hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
+              >
+                Place Order
+              </button>
             </div>
+
           </motion.div>
+
+          <DrinkCustomizationModal
+            open={Boolean(customizingItem)}
+            item={customizingItem}
+            onClose={() => setCustomizingItem(null)}
+            onSave={(customization) => {
+              if (!customizingItem) return;
+              updateCartItemCustomization(customizingItem.cartItemId, customization);
+              setCustomizingItem(null);
+              toast.success('Drink customization updated.');
+            }}
+          />
         </>
       )}
     </AnimatePresence>

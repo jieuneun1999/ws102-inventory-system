@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Edit2, Trash2, X, AlertCircle } from 'lucide-react';
-import { useAppStore, type InventoryItem, type Unit, type WasteReason } from '../../store';
+import { DRINK_ADD_ONS, useAppStore, type InventoryItem, type Unit, type WasteReason } from '../../store';
 import { toast } from 'sonner';
 
-type Tab = 'All' | 'Ingredients' | 'Materials' | 'Equipment' | 'Low Stock';
+type Tab = 'All' | 'Ingredients' | 'Materials' | 'Equipment' | 'Add-ons' | 'Low Stock';
 type StockAction = 'receive' | 'correction' | 'waste';
 type CorrectionMode = 'delta' | 'set';
 type CorrectionDirection = 'add' | 'subtract';
@@ -179,17 +179,27 @@ export function InventoryView() {
     return Math.max(0, current + delta);
   }, [stockModal]);
 
-  const tabs: Tab[] = ['All', 'Ingredients', 'Materials', 'Equipment', 'Low Stock'];
+  const tabs: Tab[] = ['All', 'Ingredients', 'Materials', 'Equipment', 'Add-ons', 'Low Stock'];
+  const addOnInventoryNames = useMemo(
+    () => new Set(DRINK_ADD_ONS.map((entry) => entry.inventoryItemName.toLowerCase())),
+    []
+  );
 
   const filteredInventory = useMemo(() => {
     let filtered = inventory;
     if (activeTab === 'Low Stock') {
       filtered = inventory.filter(item => item.status === 'low');
+    } else if (activeTab === 'Add-ons') {
+      filtered = inventory.filter(
+        (item) =>
+          item.category === 'Ingredients' &&
+          addOnInventoryNames.has(item.name.trim().toLowerCase())
+      );
     } else if (activeTab !== 'All') {
       filtered = inventory.filter(item => item.category === activeTab);
     }
     return filtered;
-  }, [inventory, activeTab]);
+  }, [inventory, activeTab, addOnInventoryNames]);
 
   const handleDeleteItem = (id: string) => {
     if (!isAdmin) return;
@@ -289,6 +299,11 @@ export function InventoryView() {
                     <span className="text-xs font-bold text-[#4D0E13]/50 uppercase tracking-wider bg-[#D8C4AC]/20 px-2.5 py-1 rounded-md mb-2 inline-block">
                       {item.category}
                     </span>
+                    {addOnInventoryNames.has(item.name.trim().toLowerCase()) && (
+                      <span className="ml-2 text-[10px] font-bold text-[#4D0E13] uppercase tracking-wider bg-[#EADDD1] px-2.5 py-1 rounded-md inline-block">
+                        Add-on stock
+                      </span>
+                    )}
                     <h4 className="font-serif text-xl text-[#4D0E13]">{item.name}</h4>
                   </div>
                 </div>

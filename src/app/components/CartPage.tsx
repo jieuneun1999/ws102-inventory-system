@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAppStore, type OrderType } from '../store';
+import { DRINK_ADD_ONS, useAppStore, type OrderType } from '../store';
 import { Minus, Plus, Trash2, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router';
+import type { CartItem } from '../store';
+import { DrinkCustomizationModal } from './DrinkCustomizationModal';
 
 export function CartPage() {
-  const { cart, updateQuantity, removeFromCart, clearCart, cartTotal, createOrder } = useAppStore();
+  const { cart, updateQuantity, removeFromCart, updateCartItemCustomization, clearCart, cartTotal, createOrder } = useAppStore();
   const [orderType, setOrderType] = useState<OrderType>('pickup');
+  const [customizingItem, setCustomizingItem] = useState<CartItem | null>(null);
   const navigate = useNavigate();
 
   const subtotal = cartTotal();
@@ -75,7 +78,7 @@ export function CartPage() {
           <div className="lg:col-span-2 space-y-4">
             {cart.map((item, index) => (
               <motion.div
-                key={item.id}
+                key={item.cartItemId}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.3, delay: index * 0.05 }}
@@ -96,9 +99,28 @@ export function CartPage() {
                         <p className="text-[#4D0E13]/60 text-sm font-medium">
                           {item.description}
                         </p>
+                        {item.customization && (
+                          <p className="mt-1 text-xs font-medium text-[#4D0E13]/60">
+                            Size: {item.customization.size} | Sugar: {item.customization.sugarLevel}%
+                            {item.customization.addOnIds.length > 0
+                              ? ` | Add-ons: ${item.customization.addOnIds
+                                  .map((id) => DRINK_ADD_ONS.find((entry) => entry.id === id)?.name)
+                                  .filter(Boolean)
+                                  .join(', ')}`
+                              : ''}
+                          </p>
+                        )}
+                        {item.customization && (
+                          <button
+                            onClick={() => setCustomizingItem(item)}
+                            className="mt-1 text-xs font-semibold text-[#4D0E13] underline-offset-2 hover:underline"
+                          >
+                            Customize drink
+                          </button>
+                        )}
                       </div>
                       <button
-                        onClick={() => removeFromCart(item.id)}
+                        onClick={() => removeFromCart(item.cartItemId)}
                         className="p-2 hover:bg-[#D8C4AC]/30 rounded-full transition-all"
                       >
                         <Trash2 size={18} className="text-[#4D0E13]" />
@@ -107,7 +129,7 @@ export function CartPage() {
                     <div className="flex items-center justify-between mt-4">
                       <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-[#D8C4AC]/20">
                         <button
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.cartItemId, item.quantity - 1)}
                           className="w-8 h-8 rounded-full bg-white hover:bg-[#4D0E13] hover:text-white flex items-center justify-center transition-all"
                         >
                           <Minus size={16} className="text-[#4D0E13] hover:text-white" />
@@ -116,7 +138,7 @@ export function CartPage() {
                           {item.quantity}
                         </span>
                         <button
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
                           className="w-8 h-8 rounded-full bg-white hover:bg-[#4D0E13] hover:text-white flex items-center justify-center transition-all"
                         >
                           <Plus size={16} className="text-[#4D0E13] hover:text-white" />
@@ -209,6 +231,18 @@ export function CartPage() {
           </div>
         </div>
       </motion.div>
+
+      <DrinkCustomizationModal
+        open={Boolean(customizingItem)}
+        item={customizingItem}
+        onClose={() => setCustomizingItem(null)}
+        onSave={(customization) => {
+          if (!customizingItem) return;
+          updateCartItemCustomization(customizingItem.cartItemId, customization);
+          setCustomizingItem(null);
+          toast.success('Drink customization updated.');
+        }}
+      />
     </div>
   );
 }
