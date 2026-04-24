@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock, Coffee, Package, CheckCircle2, ArrowRight,
-  Check, ChevronDown, ChevronUp, Timer, ShoppingBag
+  Check, ChevronDown, ChevronUp, Timer, ShoppingBag, Archive
 } from 'lucide-react';
 import { useAppStore, type OrderStatus, type Order } from '../../store';
 import { toast } from 'sonner';
@@ -232,10 +232,12 @@ function OrderCard({ order, columnId }: { order: Order; columnId: OrderStatus })
 }
 
 export function OrdersView() {
-  const { orders, updateOrderStatus, deleteOrder } = useAppStore();
+  const { orders, clearedOrderIds, clearCompletedOrders, updateOrderStatus, deleteOrder } = useAppStore();
   const [filter, setFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
 
-  const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.orderType === filter);
+  const filteredOrders = filter === 'all' ? orders : orders.filter((o) => o.orderType === filter);
+  const completedOrders = filteredOrders.filter((o) => o.status === 'completed' && !clearedOrderIds.includes(o.id));
+  const clearedOrders = filteredOrders.filter((o) => o.status === 'completed' && clearedOrderIds.includes(o.id));
   const pendingCount = orders.filter(o => o.status === 'pending').length;
 
   const handleAdvanceInList = (order: Order) => {
@@ -286,7 +288,7 @@ export function OrdersView() {
         </div>
 
         {/* Filter pills */}
-        <div className="flex gap-1.5 bg-white/50 border border-[#D8C4AC]/30 rounded-full p-1 backdrop-blur-md">
+        <div className="flex gap-1.5 bg-white/50 border border-[#D8C4AC]/30 rounded-full p-1 backdrop-blur-md overflow-x-auto hide-scrollbar max-w-full">
           {(['all', 'pickup', 'delivery'] as const).map(f => (
             <button
               key={f}
@@ -315,27 +317,43 @@ export function OrdersView() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 flex-1 min-h-0">
+        <div className="flex flex-col gap-5 flex-1 min-h-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 min-h-0">
           {COLUMNS.map((col) => {
-            const colOrders = filteredOrders.filter(o => o.status === col.id);
+            const colOrders = col.id === 'completed'
+              ? completedOrders
+              : filteredOrders.filter((o) => o.status === col.id);
             const ColIcon = col.icon;
 
             return (
               <div key={col.id} className="flex flex-col gap-3">
                 {/* Column header */}
-                <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl ${col.bg} border border-white/40 backdrop-blur-sm`}>
+                <div className={`flex items-center justify-between px-3 sm:px-4 py-2.5 rounded-xl ${col.bg} border border-white/40 backdrop-blur-sm`}>
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${col.dotColor} ${col.id === 'pending' && colOrders.length > 0 ? 'animate-pulse' : ''}`} />
                     <ColIcon size={14} className={col.color} />
                     <h3 className={`font-serif text-sm ${col.color} font-medium`}>{col.label}</h3>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${col.color} bg-white/60`}>
-                    {colOrders.length}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${col.color} bg-white/60`}>
+                      {colOrders.length}
+                    </span>
+                    {col.id === 'completed' && completedOrders.length > 0 && (
+                      <button
+                        onClick={() => {
+                          clearCompletedOrders();
+                          toast.success(`${completedOrders.length} completed order(s) moved to Cleared.`);
+                        }}
+                        className="px-2 py-1 rounded-full text-[10px] font-bold bg-[#4D0E13] text-[#EEE4DA] hover:bg-[#3a0a0e] transition-colors whitespace-nowrap"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Cards with custom scrollbar */}
-                <div className="flex-1 flex flex-col gap-2.5 overflow-y-auto scrollbar-elegant pr-1 max-h-[calc(100vh-280px)]">
+                <div className="flex-1 flex flex-col gap-2.5 overflow-y-auto scrollbar-elegant pr-1 max-h-[60vh] lg:max-h-[calc(100vh-280px)]">
                   <AnimatePresence mode="popLayout">
                     {colOrders.length === 0 ? (
                       <motion.div
@@ -356,6 +374,37 @@ export function OrdersView() {
               </div>
             );
           })}
+          </div>
+
+          <div className="rounded-2xl border border-[#D8C4AC]/35 bg-white/50 backdrop-blur-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Archive size={14} className="text-[#4D0E13]/70" />
+                <h3 className="font-serif text-base text-[#4D0E13]">Cleared</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-[#4D0E13]/70 bg-[#F5EFE6]">
+                {clearedOrders.length}
+              </span>
+            </div>
+
+            {clearedOrders.length === 0 ? (
+              <p className="text-xs text-[#4D0E13]/45">No cleared orders yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1 scrollbar-elegant">
+                {clearedOrders.map((order) => (
+                  <div key={order.id} className="rounded-xl border border-[#D8C4AC]/25 bg-white/65 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-[#4D0E13]">#{order.orderNumber}</p>
+                      <p className="text-[10px] text-[#4D0E13]/50">₱{order.total.toFixed(2)}</p>
+                    </div>
+                    <p className="text-[11px] text-[#4D0E13]/60 mt-1 truncate">
+                      {order.items.length} item(s) • {new Date(order.createdAt).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

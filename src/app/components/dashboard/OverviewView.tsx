@@ -89,6 +89,12 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
     return true;
   });
 
+  const getStatusTone = (status: (typeof inventory)[number]['status']) => {
+    if (status === 'low') return { bar: 'bg-[#D9534F]', chip: 'bg-red-100 text-red-700' };
+    if (status === 'high') return { bar: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700' };
+    return { bar: 'bg-[#5C1A1B]', chip: 'bg-[#EADDD1] text-[#4D0E13]' };
+  };
+
   const visibleOrders = orders.filter(o => {
     if (o.status === 'completed') return false;
     if (searchQuery && !o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) && !o.items.some(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()))) return false;
@@ -114,9 +120,9 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
   };
 
   return (
-    <div className="w-full flex flex-col gap-6 pb-12 pr-2">
+    <div className="w-full flex flex-col gap-6 pb-8 sm:pb-12 pr-0 sm:pr-2">
       {/* Header */}
-      <header className="flex justify-between items-center bg-transparent mt-4 mb-2">
+      <header className="flex flex-col sm:flex-row justify-between sm:items-center bg-transparent mt-2 sm:mt-4 mb-2 gap-3">
         <div>
           <h2 className="text-[28px] md:text-[32px] font-serif text-[#4D0E13] flex items-center gap-2 tracking-tight">
             {(() => {
@@ -228,11 +234,11 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
       )}
 
       {/* Main Two Column Layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 flex-1 h-[600px] min-h-0">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 flex-1 xl:h-[600px] min-h-0">
         
         {/* Left Column: Inventory Overview */}
         <div className="col-span-2 bg-white/60 backdrop-blur-xl border border-white/80 rounded-[2rem] p-6 shadow-[0_4px_24px_rgba(77,14,19,0.02)] flex flex-col h-full">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 gap-3">
             <div className="flex items-center gap-2">
               <Package size={22} className="text-[#4D0E13]" />
               <h3 className="text-[22px] font-serif text-[#4D0E13] tracking-tight">Inventory Overview</h3>
@@ -287,39 +293,42 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
                 const progress = Math.min(100, Math.max(0, (item.stock / (item.reorderLevel * 3)) * 100));
                 
                 return (
-                  <div key={item.id} className={`flex items-center gap-4 p-4 rounded-2xl transition-colors border border-transparent hover:border-white/60 hover:bg-white/40 ${isLow ? 'bg-[#FDF3F3]/80 hover:bg-[#FDF3F3]' : ''}`}>
+                  <div key={item.id} className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 rounded-2xl transition-colors border border-transparent hover:border-white/60 hover:bg-white/40 ${isLow ? 'bg-[#FDF3F3]/80 hover:bg-[#FDF3F3]' : ''}`}>
                     <div className="w-12 h-12 rounded-full bg-[#EADDD1] flex-shrink-0 border-2 border-white overflow-hidden flex items-center justify-center text-[#4D0E13]">
                       <Package size={20} className="opacity-50" />
                     </div>
                     
-                    <div className="w-48 shrink-0">
+                    <div className="w-full sm:w-48 sm:shrink-0">
                       <h4 className="font-serif text-[#4D0E13] text-[15px] font-bold mb-0.5">{item.name}</h4>
                       <span className="text-[10px] font-bold text-[#4D0E13]/50 uppercase tracking-wider border border-[#D8C4AC]/30 px-2 py-0.5 rounded-md inline-block">
                         {item.category}
                       </span>
+                      <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-md inline-block ${getStatusTone(item.status).chip}`}>
+                        {item.status === 'high' ? 'full' : item.status}
+                      </span>
                     </div>
 
-                    <div className="flex-1 min-w-[150px]">
+                    <div className="flex-1 min-w-0 sm:min-w-[150px]">
                       <div className="flex justify-between text-[11px] font-semibold text-[#4D0E13]/60 mb-1.5">
                         <span>Stock Level</span>
                         <span>{Math.round(progress)}%</span>
                       </div>
-                      <div className="h-1.5 bg-[#EADDD1]/60 rounded-full overflow-hidden w-full max-w-[200px]">
+                      <div className="h-1.5 bg-[#EADDD1]/60 rounded-full overflow-hidden w-full sm:max-w-[200px]">
                         <div 
-                          className={`h-full rounded-full ${isLow ? 'bg-[#D9534F]' : 'bg-[#5C1A1B]'}`}
+                          className={`h-full rounded-full ${getStatusTone(item.status).bar}`}
                           style={{ width: `${progress}%` }}
                         />
                       </div>
                     </div>
 
-                    <div className="w-24 text-right shrink-0">
+                    <div className="w-full sm:w-24 text-left sm:text-right shrink-0">
                       <p className="font-serif text-[#4D0E13] text-base">{item.stock} {item.unit}</p>
                       <p className="text-[10px] font-medium text-[#4D0E13]/40 mt-0.5">Updated 2h ago</p>
                     </div>
 
                     <button 
                       onClick={() => onNavigate('inventory')}
-                      className="p-2 text-[#4D0E13]/40 hover:text-[#4D0E13] transition-colors ml-2 shrink-0"
+                      className="p-2 text-[#4D0E13]/40 hover:text-[#4D0E13] transition-colors sm:ml-2 shrink-0 self-end sm:self-auto"
                     >
                       <MoreHorizontal size={18} />
                     </button>

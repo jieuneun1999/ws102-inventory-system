@@ -28,6 +28,7 @@ export default function App() {
 
       hydrateRemoteData({
         products: snapshot.products,
+        productRecipes: snapshot.productRecipes,
         inventory: snapshot.inventory,
         orders: snapshot.orders,
         inventoryAdjustments: snapshot.inventoryAdjustments,

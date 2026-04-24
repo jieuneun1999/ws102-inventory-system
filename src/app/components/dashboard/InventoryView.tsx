@@ -22,6 +22,7 @@ export function InventoryView() {
   } = useAppStore();
   const isAdmin = userRole === 'admin';
   const [activeTab, setActiveTab] = useState<Tab>('All');
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newItem, setNewItem] = useState({
     name: '',
@@ -56,6 +57,11 @@ export function InventoryView() {
 
   const unitChoices: Unit[] = ['g', 'kg', 'ml', 'L', 'pcs', 'units', 'bottles'];
   const formatStock = (value: number) => value.toFixed(2);
+  const getStatusTone = (status: InventoryItem['status']) => {
+    if (status === 'low') return { bar: 'bg-red-500', badge: 'bg-red-100 text-red-700', text: 'text-red-700' };
+    if (status === 'high') return { bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-700' };
+    return { bar: 'bg-[#5C1A1B]', badge: 'bg-[#EADDD1] text-[#4D0E13]', text: 'text-[#4D0E13]' };
+  };
   const unitToBase: Record<Unit, number> = { g: 1, kg: 1000, ml: 1, L: 1000, pcs: 1, units: 1, bottles: 1 };
   const unitGroup: Record<Unit, 'mass' | 'volume' | 'count'> = {
     g: 'mass',
@@ -201,9 +207,11 @@ export function InventoryView() {
     return filtered;
   }, [inventory, activeTab, addOnInventoryNames]);
 
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = (item: InventoryItem) => {
     if (!isAdmin) return;
-    deleteInventoryItem(id);
+    const shouldDelete = window.confirm(`Delete inventory item "${item.name}"? This action cannot be undone.`);
+    if (!shouldDelete) return;
+    deleteInventoryItem(item.id);
     toast.success('Item removed');
   };
 
@@ -236,15 +244,33 @@ export function InventoryView() {
           <h2 className="text-3xl md:text-4xl font-serif text-[#4D0E13] mb-1 tracking-tight">Inventory</h2>
           <p className="text-[#4D0E13]/60 font-medium text-sm">Manage stock levels and supplies.</p>
         </div>
-        
-        {isAdmin && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 bg-[#4D0E13] text-[#F5EFE6] px-5 py-2.5 rounded-full hover:bg-[#3a0a0e] transition-all shadow-md active:scale-95 text-sm font-bold uppercase tracking-wide"
-          >
-            <Plus size={16} /> Add Item
-          </button>
-        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1.5 bg-white/50 border border-[#D8C4AC]/30 rounded-full p-1 backdrop-blur-md">
+            {(['cards', 'list'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all capitalize ${
+                  viewMode === mode
+                    ? 'bg-[#4D0E13] text-[#EEE4DA] shadow-sm'
+                    : 'text-[#4D0E13]/60 hover:text-[#4D0E13]'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          {isAdmin && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 bg-[#4D0E13] text-[#F5EFE6] px-5 py-2.5 rounded-full hover:bg-[#3a0a0e] transition-all shadow-md active:scale-95 text-sm font-bold uppercase tracking-wide"
+            >
+              <Plus size={16} /> Add Item
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex overflow-x-auto gap-2 mb-6 hide-scrollbar pb-1">
@@ -271,88 +297,150 @@ export function InventoryView() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        <AnimatePresence mode="popLayout">
-          {filteredInventory.map((item) => {
-            const isLow = item.status === 'low';
-            const progress = Math.min(100, Math.max(0, (item.stock / (item.reorderLevel * 3)) * 100));
-            const forecastDays = computeForecastDays(item.id, item.stock);
-            
-            return (
-              <motion.div
-                layout
-                key={item.id}
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className={`relative overflow-hidden bg-white/60 backdrop-blur-xl border p-6 rounded-[1.5rem] shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 ${
-                  isLow ? 'border-red-200/50 bg-red-50/20' : 'border-white/50'
-                }`}
-              >
-                {isLow && (
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 rounded-bl-full -mr-16 -mt-16 mix-blend-multiply opacity-50 blur-xl" />
-                )}
-                
-                <div className="flex justify-between items-start mb-4 relative z-10">
-                  <div>
-                    <span className="text-xs font-bold text-[#4D0E13]/50 uppercase tracking-wider bg-[#D8C4AC]/20 px-2.5 py-1 rounded-md mb-2 inline-block">
-                      {item.category}
-                    </span>
-                    {addOnInventoryNames.has(item.name.trim().toLowerCase()) && (
-                      <span className="ml-2 text-[10px] font-bold text-[#4D0E13] uppercase tracking-wider bg-[#EADDD1] px-2.5 py-1 rounded-md inline-block">
-                        Add-on stock
+      {viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+          <AnimatePresence mode="popLayout">
+            {filteredInventory.map((item) => {
+              const isLow = item.status === 'low';
+              const tone = getStatusTone(item.status);
+              const progress = Math.min(100, Math.max(0, (item.stock / (item.reorderLevel * 3)) * 100));
+              const forecastDays = computeForecastDays(item.id, item.stock);
+
+              return (
+                <motion.div
+                  layout
+                  key={item.id}
+                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                  className={`relative overflow-hidden bg-white/60 backdrop-blur-xl border p-6 rounded-[1.5rem] shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 ${
+                    isLow ? 'border-red-200/50 bg-red-50/20' : 'border-white/50'
+                  }`}
+                >
+                  {isLow && (
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 rounded-bl-full -mr-16 -mt-16 mix-blend-multiply opacity-50 blur-xl" />
+                  )}
+
+                  <div className="flex justify-between items-start mb-4 relative z-10">
+                    <div>
+                      <span className="text-xs font-bold text-[#4D0E13]/50 uppercase tracking-wider bg-[#D8C4AC]/20 px-2.5 py-1 rounded-md mb-2 inline-block">
+                        {item.category}
                       </span>
-                    )}
-                    <h4 className="font-serif text-xl text-[#4D0E13]">{item.name}</h4>
-                  </div>
-                </div>
-
-                <div className="mb-6 relative z-10">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className={`text-4xl font-serif ${isLow ? 'text-red-700' : 'text-[#4D0E13]'}`}>
-                      {formatStock(item.stock)}
-                    </span>
-                    <span className="text-sm font-medium text-[#4D0E13]/60">{item.unit}</span>
-                  </div>
-                  
-                  <div className="w-full h-1.5 bg-[#D8C4AC]/30 rounded-full mt-4 overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                      transition={{ duration: 1, ease: "easeOut" }}
-                      className={`h-full rounded-full ${isLow ? 'bg-red-500' : item.status === 'high' ? 'bg-blue-400' : 'bg-[#4D0E13]/80'}`}
-                    />
-                  </div>
-                  <p className="text-xs text-[#4D0E13]/50 mt-2 font-medium">Reorder at {item.reorderLevel} {item.unit}</p>
-                  <p className="text-xs text-[#4D0E13]/50 mt-1 font-medium">
-                    Forecast: {forecastDays == null ? 'Insufficient usage data' : `${forecastDays} day(s) remaining`}
-                  </p>
-                </div>
-
-                {isAdmin && (
-                  <div className="flex flex-col gap-2 pt-4 border-t border-[#D8C4AC]/30 relative z-10">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => openStockModal(item)}
-                        className="flex-1 bg-white/50 text-[#4D0E13] border border-[#D8C4AC]/50 px-4 py-2 rounded-xl text-sm hover:bg-white/80 transition-colors flex items-center justify-center gap-1.5 font-medium"
-                      >
-                        <Edit2 size={16} /> Update Stock
-                      </button>
-                      <button
-                        onClick={() => handleDeleteItem(item.id)}
-                        className="p-2 rounded-xl text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors border border-transparent hover:border-red-100"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      {addOnInventoryNames.has(item.name.trim().toLowerCase()) && (
+                        <span className="ml-2 text-[10px] font-bold text-[#4D0E13] uppercase tracking-wider bg-[#EADDD1] px-2.5 py-1 rounded-md inline-block">
+                          Add-on stock
+                        </span>
+                      )}
+                      <h4 className="font-serif text-xl text-[#4D0E13]">{item.name}</h4>
                     </div>
                   </div>
-                )}
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
+
+                  <div className="mb-6 relative z-10">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`text-3xl sm:text-4xl font-serif ${tone.text}`}>
+                        {formatStock(item.stock)}
+                      </span>
+                      <span className="text-sm font-medium text-[#4D0E13]/60">{item.unit}</span>
+                    </div>
+
+                    <div className="w-full h-1.5 bg-[#D8C4AC]/30 rounded-full mt-4 overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 1, ease: 'easeOut' }}
+                        className={`h-full rounded-full ${tone.bar}`}
+                      />
+                    </div>
+                    <p className="text-xs text-[#4D0E13]/50 mt-2 font-medium">Reorder at {item.reorderLevel} {item.unit}</p>
+                    <p className="text-xs text-[#4D0E13]/50 mt-1 font-medium">
+                      Forecast: {forecastDays == null ? 'Insufficient usage data' : `${forecastDays} day(s) remaining`}
+                    </p>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="flex flex-col gap-2 pt-4 border-t border-[#D8C4AC]/30 relative z-10">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openStockModal(item)}
+                          className="flex-1 bg-white/50 text-[#4D0E13] border border-[#D8C4AC]/50 px-4 py-2 rounded-xl text-sm hover:bg-white/80 transition-colors flex items-center justify-center gap-1.5 font-medium"
+                        >
+                          <Edit2 size={16} /> Update Stock
+                        </button>
+                        <button
+                          onClick={() => handleDeleteItem(item)}
+                          className="p-2 rounded-xl text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors border border-transparent hover:border-red-100"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      ) : (
+        <div className="overflow-auto rounded-2xl border border-[#D8C4AC]/35 bg-white/60 backdrop-blur-xl">
+          <table className="w-full text-sm">
+            <thead className="bg-[#F5EFE6]/70 text-[#4D0E13]/70 uppercase tracking-wider text-xs">
+              <tr>
+                <th className="text-left px-4 py-3">Item</th>
+                <th className="text-left px-4 py-3">Category</th>
+                <th className="text-left px-4 py-3">Stock</th>
+                <th className="text-left px-4 py-3">Reorder</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-left px-4 py-3">Forecast</th>
+                {isAdmin && <th className="text-left px-4 py-3">Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredInventory.map((item) => {
+                const tone = getStatusTone(item.status);
+                const forecastDays = computeForecastDays(item.id, item.stock);
+                return (
+                  <tr key={item.id} className="border-t border-[#D8C4AC]/25 text-[#4D0E13] align-top">
+                    <td className="px-4 py-3">
+                      <p className="font-semibold">{item.name}</p>
+                      <p className="text-[11px] text-[#4D0E13]/55">{item.id}</p>
+                    </td>
+                    <td className="px-4 py-3">{item.category}</td>
+                    <td className="px-4 py-3 font-semibold">{formatStock(item.stock)} {item.unit}</td>
+                    <td className="px-4 py-3 text-[#4D0E13]/70">{item.reorderLevel} {item.unit}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${tone.badge}`}>
+                        {item.status === 'high' ? 'full' : item.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[#4D0E13]/70">
+                      {forecastDays == null ? 'Insufficient usage data' : `${forecastDays} day(s)`}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => openStockModal(item)}
+                            className="px-3 py-1.5 rounded-lg border border-[#D8C4AC]/50 bg-white/60 text-xs font-semibold hover:bg-white"
+                          >
+                            Update
+                          </button>
+                          <button
+                            onClick={() => handleDeleteItem(item)}
+                            className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Inventory Empty State */}
       {filteredInventory.length === 0 && (
@@ -383,7 +471,7 @@ export function InventoryView() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white/80 backdrop-blur-2xl border border-white/60 rounded-[2rem] shadow-2xl z-50 p-8"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] sm:w-full max-w-md max-h-[90vh] overflow-y-auto bg-white/80 backdrop-blur-2xl border border-white/60 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl z-50 p-5 sm:p-8"
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-2xl font-serif text-[#4D0E13]">Add New Item</h3>
@@ -508,7 +596,7 @@ export function InventoryView() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white/85 backdrop-blur-2xl border border-white/70 rounded-[2rem] shadow-2xl z-50 p-8"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] sm:w-full max-w-md max-h-[90vh] overflow-y-auto bg-white/85 backdrop-blur-2xl border border-white/70 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl z-50 p-5 sm:p-8"
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-2xl font-serif text-[#4D0E13]">Update Stock</h3>

@@ -4,6 +4,7 @@ import { getStoredSession } from './supabaseAuth';
 
 type SupabaseSnapshot = {
   products: Product[];
+  productRecipes: Record<string, Array<{ inventoryItemId: string; inventoryName: string; amount: number; unit: Unit }>>;
   inventory: InventoryItem[];
   orders: Order[];
   inventoryAdjustments: Array<{
@@ -283,7 +284,7 @@ const LEGACY_INVENTORY_IDS = new Set(['1', '2', '3', '4', '5', '6', '7', '8']);
 export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> => {
   if (!isConfigured) return null;
 
-  let products = await fetchRows<Product>('products', 'select=*&order=created_at.asc');
+  let products = await fetchRows<Product>('products', 'select=*&active=eq.true&order=created_at.asc');
   let inventory = await fetchRows<InventoryItem>('inventory_items', 'select=*&order=created_at.asc');
 
   const legacyProductIds = products
@@ -302,12 +303,16 @@ export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> 
     await deleteRowsByIds('products', 'id', legacyProductIds);
     await deleteRowsByIds('inventory_items', 'id', legacyInventoryIds);
 
-    products = await fetchRows<Product>('products', 'select=*&order=created_at.asc');
+    products = await fetchRows<Product>('products', 'select=*&active=eq.true&order=created_at.asc');
     inventory = await fetchRows<InventoryItem>('inventory_items', 'select=*&order=created_at.asc');
   }
 
   const ordersRaw = await fetchRows<any>('orders', 'select=*&order=created_at.desc');
   const orderItemsRaw = await fetchRows<any>('order_items', 'select=*&order=created_at.asc');
+  let recipeRows = await fetchRows<any>(
+    'product_recipes',
+    'select=product_id,inventory_item_id,amount,unit,inventory_items(name)&order=product_id.asc'
+  );
   const inventoryAdjustments = await fetchRows<SupabaseSnapshot['inventoryAdjustments'][number]>('inventory_adjustments', 'select=*&order=created_at.desc');
   const wasteLogs = await fetchRows<SupabaseSnapshot['wasteLogs'][number]>('waste_logs', 'select=*&order=created_at.desc');
 
@@ -331,7 +336,13 @@ export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> 
     await upsertRows('inventory_items', INBOX_INVENTORY, 'id');
   }
 
-  await upsertRows('product_recipes', DEMO_RECIPES, 'product_id,inventory_item_id');
+  if (recipeRows.length === 0) {
+    await upsertRows('product_recipes', DEMO_RECIPES, 'product_id,inventory_item_id');
+    recipeRows = await fetchRows<any>(
+      'product_recipes',
+      'select=product_id,inventory_item_id,amount,unit,inventory_items(name)&order=product_id.asc'
+    );
+  }
 
   const nextProducts = (products.length > 0 && !hasLegacyProducts && hasCanonicalProducts
     ? products
@@ -349,6 +360,28 @@ export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> 
     status: item.status,
     reorderLevel: roundTo2(Number(item.reorderLevel ?? item.reorder_level ?? 0)),
   })) as InventoryItem[];
+  const inventoryNameById = new Map(nextInventory.map((item) => [item.id, item.name]));
+  const productRecipes: SupabaseSnapshot['productRecipes'] = recipeRows.reduce((acc, row) => {
+    const inventoryItemId = String(row.inventory_item_id ?? '');
+    if (!inventoryItemId) return acc;
+    const inventoryName = String(
+      row.inventory_items?.name ?? inventoryNameById.get(inventoryItemId) ?? inventoryItemId
+    );
+    const productId = String(row.product_id ?? '');
+    if (!productId) return acc;
+    if (!acc[productId]) acc[productId] = [];
+    acc[productId].push({
+      inventoryItemId,
+      inventoryName,
+      amount: roundTo2(Number(row.amount ?? 0)),
+      unit: row.unit,
+    });
+    return acc;
+  }, {} as SupabaseSnapshot['productRecipes']);
+  const mergedProducts = nextProducts.map((item) => ({
+    ...item,
+    ingredients: productRecipes[item.id]?.map((entry) => entry.inventoryName) ?? item.ingredients,
+  }));
 
   const nextOrders: Order[] = ordersRaw.map((order) => ({
     id: order.id,
@@ -377,7 +410,8 @@ export const bootstrapSupabaseDemo = async (): Promise<SupabaseSnapshot | null> 
   }));
 
   return {
-    products: nextProducts,
+    products: mergedProducts,
+    productRecipes,
     inventory: nextInventory,
     orders: nextOrders,
     inventoryAdjustments,
@@ -396,6 +430,70 @@ export const syncSupabaseProductCatalog = async (products: Product[]) => {
     description: item.description,
     active: true,
   })), 'id');
+};
+
+export const syncSupabaseProductWithRecipe = async (
+  product: Product,
+  recipe: Array<{ inventoryItemId?: string; inventoryName: string; amount: number; unit: Unit }>
+) => {
+  if (!isConfigured) return;
+
+  await upsertRows('products', [
+    {
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      price: product.price,
+      image: product.image,
+      description: product.description,
+      active: true,
+    },
+  ], 'id');
+
+  await request(`/rest/v1/product_recipes?product_id=eq.${encodeURIComponent(product.id)}`, {
+    method: 'DELETE',
+    headers: {
+      Prefer: 'return=minimal',
+    },
+  });
+
+  const recipeRows = recipe
+    .filter((entry) => Boolean(entry.inventoryItemId) && Number(entry.amount) > 0)
+    .map((entry) => ({
+      product_id: product.id,
+      inventory_item_id: String(entry.inventoryItemId),
+      amount: roundTo2(Number(entry.amount)),
+      unit: entry.unit,
+    }));
+
+  if (recipeRows.length === 0) return;
+
+  await request('/rest/v1/product_recipes', {
+    method: 'POST',
+    headers: {
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(recipeRows),
+  });
+};
+
+export const deleteSupabaseProductWithRecipe = async (productId: string) => {
+  if (!isConfigured) return;
+
+  await request(`/rest/v1/product_recipes?product_id=eq.${encodeURIComponent(productId)}`, {
+    method: 'DELETE',
+    headers: {
+      Prefer: 'return=minimal',
+    },
+  });
+
+  await request(`/rest/v1/products?id=eq.${encodeURIComponent(productId)}`, {
+    method: 'PATCH',
+    headers: {
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ active: false }),
+  });
 };
 
 export const syncSupabaseInventory = async (inventory: InventoryItem[]) => {

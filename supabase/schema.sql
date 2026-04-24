@@ -34,6 +34,19 @@ do $$ begin
 exception when duplicate_object then null;
 end $$;
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'app_adjustment_type'
+      and e.enumlabel = 'batch_add'
+  ) then
+    alter type app_adjustment_type add value 'batch_add';
+  end if;
+end $$;
+
 do $$ begin
   create type app_waste_reason as enum ('expired', 'spillage', 'damage', 'overproduction', 'other');
 exception when duplicate_object then null;
@@ -195,6 +208,12 @@ create table if not exists waste_logs (
   note text,
   created_at timestamptz not null default now()
 );
+
+alter table inventory_adjustments
+  add column if not exists inventory_item_name text;
+
+alter table waste_logs
+  add column if not exists inventory_item_name text;
 
 -- ============================================
 -- SEED DATA: Products and Inventory
@@ -445,6 +464,16 @@ insert into product_recipes (product_id, inventory_item_id, amount, unit) values
 -- Normalize existing numeric values to 2 decimals
 update unit_factors set factor_to_base = round(factor_to_base, 2);
 update inventory_items set stock = round(stock, 2), reorder_level = round(reorder_level, 2);
+update inventory_adjustments ia
+set inventory_item_name = ii.name
+from inventory_items ii
+where ia.inventory_item_id = ii.id
+  and (ia.inventory_item_name is null or ia.inventory_item_name = '');
+update waste_logs wl
+set inventory_item_name = ii.name
+from inventory_items ii
+where wl.inventory_item_id = ii.id
+  and (wl.inventory_item_name is null or wl.inventory_item_name = '');
 update products set price = round(price, 2);
 update product_recipes set amount = round(amount, 2);
 update orders set total = round(total, 2);

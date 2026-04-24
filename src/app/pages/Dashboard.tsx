@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'framer-motion';
+import { LayoutDashboard, Box, ShoppingBag, BookOpenText, BarChart3, History, Users, Settings } from 'lucide-react';
 import { Sidebar, type DashboardView } from '../components/dashboard/Sidebar';
 import { OverviewView } from '../components/dashboard/OverviewView';
 import { InventoryView } from '../components/dashboard/InventoryView';
@@ -52,13 +53,48 @@ export function Dashboard() {
     return null;
   }
 
+  const mobileNavItems: Array<{ id: DashboardView; label: string; icon: any; adminOnly?: boolean }> = [
+    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'inventory', label: 'Inventory', icon: Box },
+    { id: 'orders', label: 'Orders', icon: ShoppingBag },
+    { id: 'products', label: 'Products', icon: BookOpenText },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'history', label: 'History', icon: History },
+    { id: 'users', label: 'Users', icon: Users, adminOnly: true },
+    { id: 'settings', label: 'Settings', icon: Settings },
+  ].filter((item) => !item.adminOnly || userRole === 'admin');
+
   return (
-    <div className="relative z-10 flex min-h-screen max-w-[1600px] mx-auto px-6 gap-8 pb-10">
+    <div className="relative z-10 flex min-h-screen max-w-[1600px] mx-auto px-3 sm:px-4 lg:px-6 gap-0 lg:gap-8 pb-6 lg:pb-10">
       {/* Fixed Left Sidebar */}
-      <Sidebar activeView={activeView} setActiveView={setActiveView} />
+      <div className="hidden lg:block">
+        <Sidebar activeView={activeView} setActiveView={setActiveView} />
+      </div>
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col">
+        <div className="lg:hidden sticky top-0 z-20 bg-[#F5EFE6]/90 backdrop-blur-md border-b border-[#D8C4AC]/35 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2.5 mb-3">
+          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+            {mobileNavItems.map((item) => {
+              const Icon = item.icon;
+              const active = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveView(item.id)}
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold transition-colors ${
+                    active
+                      ? 'bg-[#4D0E13] text-[#EEE4DA]'
+                      : 'bg-white/70 text-[#4D0E13]/70 border border-[#D8C4AC]/40'
+                  }`}
+                >
+                  <Icon size={14} /> {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <AnimatePresence mode="wait">
           {activeView === 'overview' && (
             <motion.div

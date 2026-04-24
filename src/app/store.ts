@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { MENU_ITEMS } from './data';
 import {
+  deleteSupabaseProductWithRecipe,
   syncSupabaseInventoryAdjustment,
   syncSupabaseInventoryItem,
   syncSupabaseOrderCreate,
   syncSupabaseOrderStatus,
+  syncSupabaseProductWithRecipe,
   syncSupabaseWasteLog,
 } from './lib/supabaseSync';
 import { getStoredAuthRole } from './lib/supabaseAuth';
@@ -152,6 +154,7 @@ export interface Account {
 }
 
 type RecipeIngredient = {
+  inventoryItemId?: string;
   inventoryName: string;
   amount: number;
   unit: Unit;
@@ -252,6 +255,19 @@ const PRODUCT_MATERIALS: Record<string, RecipeIngredient[]> = {
     { inventoryName: 'Plastic bags', amount: 1, unit: 'pcs' },
   ],
 };
+
+const LEGACY_PRODUCT_RECIPES: Record<string, RecipeIngredient[]> = {
+  ...Object.fromEntries(
+    Object.entries(PRODUCT_RECIPES).map(([productId, ingredients]) => [productId, [...ingredients]])
+  ),
+};
+
+Object.entries(PRODUCT_MATERIALS).forEach(([productId, materials]) => {
+  LEGACY_PRODUCT_RECIPES[productId] = [
+    ...(LEGACY_PRODUCT_RECIPES[productId] ?? []),
+    ...materials,
+  ];
+});
 
 const isDrink = (category: string) => {
   const normalized = category.trim().toLowerCase();
@@ -460,14 +476,22 @@ interface AppState {
   hydrateAuthSession: (payload: { role: UserRole; accountId: string }) => void;
 
   orders: Order[];
+  clearedOrderIds: string[];
   currentOrderId: string | null;
   products: Product[];
+  productRecipes: Record<string, RecipeIngredient[]>;
   createOrder: (orderType?: OrderType) => string;
+  upsertProductWithRecipe: (input: {
+    product: Product;
+    recipe: Array<{ inventoryItemId: string; amount: number; unit: Unit }>;
+  }) => void;
+  deleteProductWithRecipe: (productId: string) => void;
+  clearCompletedOrders: () => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   deleteOrder: (orderId: string) => void;
   getOrder: (orderId: string) => Order | undefined;
   getActiveOrders: () => Order[];
-  hydrateRemoteData: (snapshot: Partial<Pick<AppState, 'products' | 'inventory' | 'orders' | 'inventoryAdjustments' | 'wasteLogs'>>) => void;
+  hydrateRemoteData: (snapshot: Partial<Pick<AppState, 'products' | 'productRecipes' | 'inventory' | 'orders' | 'inventoryAdjustments' | 'wasteLogs'>>) => void;
 
   inventory: InventoryItem[];
   inventoryBatches: Record<string, InventoryBatch[]>;
@@ -589,13 +613,112 @@ export const useAppStore = create<AppState>()(
       logout: () => set({ isAuthenticated: false, userRole: null, currentAccountId: null }),
 
       orders: [],
+      clearedOrderIds: [],
       currentOrderId: null,
       products: MENU_ITEMS,
+      productRecipes: LEGACY_PRODUCT_RECIPES,
       hydrateRemoteData: (snapshot) =>
         set((state) => ({
           ...state,
           ...snapshot,
         })),
+      upsertProductWithRecipe: ({ product, recipe }) =>
+        set((state) => {
+          const productExists = state.products.some((entry) => entry.id === product.id);
+          const recipeWithNames: RecipeIngredient[] = recipe
+            .map((entry) => {
+              const inventoryItem = state.inventory.find((item) => item.id === entry.inventoryItemId);
+              if (!inventoryItem) return null;
+              return {
+                inventoryItemId: inventoryItem.id,
+                inventoryName: inventoryItem.name,
+                amount: roundTo2(entry.amount),
+                unit: entry.unit,
+              };
+            })
+            .filter((entry): entry is RecipeIngredient => Boolean(entry));
+
+          const nextProduct: Product = {
+            ...product,
+            ingredients: recipeWithNames.map((entry) => entry.inventoryName),
+          };
+
+          const nextProducts = productExists
+            ? state.products.map((entry) => (entry.id === product.id ? nextProduct : entry))
+            : [...state.products, nextProduct];
+
+          const nextRecipes = {
+            ...state.productRecipes,
+            [product.id]: recipeWithNames,
+          };
+
+          void syncSupabaseProductWithRecipe(nextProduct, recipeWithNames);
+
+          return {
+            products: nextProducts,
+            productRecipes: nextRecipes,
+            historyEvents: [
+              {
+                id: createId('hist'),
+                domain: 'products',
+                title: productExists ? `${nextProduct.name} updated` : `${nextProduct.name} added`,
+                detail: `${recipeWithNames.length} mapped ingredient(s)`,
+                createdAt: Date.now(),
+              },
+              ...state.historyEvents,
+            ],
+          };
+        }),
+      deleteProductWithRecipe: (productId) =>
+        set((state) => {
+          const target = state.products.find((entry) => entry.id === productId);
+          if (!target) return state;
+
+          const nextProducts = state.products.filter((entry) => entry.id !== productId);
+          const nextRecipes = { ...state.productRecipes };
+          delete nextRecipes[productId];
+
+          void deleteSupabaseProductWithRecipe(productId);
+
+          return {
+            products: nextProducts,
+            productRecipes: nextRecipes,
+            historyEvents: [
+              {
+                id: createId('hist'),
+                domain: 'products',
+                title: `${target.name} deleted`,
+                detail: 'Product and mapped ingredients removed',
+                createdAt: Date.now(),
+              },
+              ...state.historyEvents,
+            ],
+          };
+        }),
+      clearCompletedOrders: () =>
+        set((state) => {
+          const completedIds = state.orders
+            .filter((order) => order.status === 'completed')
+            .map((order) => order.id);
+
+          if (completedIds.length === 0) return state;
+
+          const nextClearedIds = [...new Set([...state.clearedOrderIds, ...completedIds])];
+
+          return {
+            clearedOrderIds: nextClearedIds,
+            historyEvents: [
+              {
+                id: createId('hist'),
+                domain: 'orders',
+                title: `${completedIds.length} completed order(s) cleared`,
+                detail: 'Moved to cleared section',
+                createdAt: Date.now(),
+              },
+              ...state.historyEvents,
+            ],
+          };
+        }),
       createOrder: (orderType = 'pickup') => {
         const { cart, cartTotal } = get();
         const orderId = createId('order');
@@ -654,14 +777,19 @@ export const useAppStore = create<AppState>()(
             nextBatches = { ...state.inventoryBatches };
 
             target.items.forEach((orderItem) => {
-              const baseRecipe = PRODUCT_RECIPES[orderItem.id] ?? [];
-              const materialRecipe = PRODUCT_MATERIALS[orderItem.id] ?? [];
+              const mappedRecipe = state.productRecipes[orderItem.id] ?? [];
+              const hasMappedRecipe = mappedRecipe.length > 0;
+              const legacyRecipe = [
+                ...(PRODUCT_RECIPES[orderItem.id] ?? []),
+                ...(PRODUCT_MATERIALS[orderItem.id] ?? []),
+              ];
+              const baseRecipe = hasMappedRecipe ? mappedRecipe : legacyRecipe;
               const drinkCustomization = orderItem.customization ?? getDrinkDefaultCustomization();
-              const drinkMaterials = isDrink(orderItem.category)
+              const drinkMaterials = !hasMappedRecipe && isDrink(orderItem.category)
                 ? getDrinkMaterialRecipe(orderItem.id, drinkCustomization)
                 : [];
               const addOnRecipe = isDrink(orderItem.category) ? getAddOnRecipe(orderItem.customization) : [];
-              const recipe = [...baseRecipe, ...materialRecipe, ...drinkMaterials, ...addOnRecipe].map((ingredient) => {
+              const recipe = [...baseRecipe, ...drinkMaterials, ...addOnRecipe].map((ingredient) => {
                 if (
                   isDrink(orderItem.category) &&
                   ingredient.inventoryName.toLowerCase() === 'white sugar' &&
@@ -739,6 +867,10 @@ export const useAppStore = create<AppState>()(
             orders: state.orders.map((order) =>
               order.id === orderId ? { ...order, status } : order
             ),
+            clearedOrderIds:
+              status === 'completed'
+                ? state.clearedOrderIds
+                : state.clearedOrderIds.filter((id) => id !== orderId),
             inventory: nextInventory,
             inventoryBatches: nextBatches,
             inventoryAdjustments: nextAdjustments,
@@ -763,6 +895,7 @@ export const useAppStore = create<AppState>()(
           const nextOrders = state.orders.filter((order) => order.id !== orderId);
           return {
             orders: nextOrders,
+            clearedOrderIds: state.clearedOrderIds.filter((id) => id !== orderId),
             currentOrderId:
               state.currentOrderId === orderId
                 ? (nextOrders.find((o) => o.status !== 'completed')?.id ?? nextOrders[0]?.id ?? null)
@@ -1172,7 +1305,10 @@ export const useAppStore = create<AppState>()(
       name: 'aura-cafe-storage',
       partialize: (state) => ({
         orders: state.orders,
+        clearedOrderIds: state.clearedOrderIds,
         currentOrderId: state.currentOrderId,
+        products: state.products,
+        productRecipes: state.productRecipes,
         isAuthenticated: state.isAuthenticated,
         userRole: state.userRole,
         currentAccountId: state.currentAccountId,
@@ -1186,6 +1322,9 @@ export const useAppStore = create<AppState>()(
       merge: (persistedState: any, currentState: AppState) => ({
         ...currentState,
         ...persistedState,
+        clearedOrderIds: persistedState?.clearedOrderIds ?? currentState.clearedOrderIds,
+        products: persistedState?.products ?? currentState.products,
+        productRecipes: persistedState?.productRecipes ?? currentState.productRecipes,
         inventory: (() => {
           const sourceInventory = persistedState?.inventory ?? currentState.inventory;
           const hasLegacyInventory = sourceInventory.some(
