@@ -588,6 +588,16 @@ export const syncSupabaseOrderStatus = async (orderId: string, status: OrderStat
   });
 };
 
+export const syncSupabaseOrderDelete = async (orderId: string) => {
+  if (!isConfigured) return;
+  await request(`/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}`, {
+    method: 'DELETE',
+    headers: {
+      Prefer: 'return=minimal',
+    },
+  });
+};
+
 export const syncSupabaseInventoryItem = async (item: InventoryItem) => {
   if (!isConfigured) return;
   await upsertRows('inventory_items', [{

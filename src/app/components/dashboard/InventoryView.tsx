@@ -60,7 +60,7 @@ export function InventoryView() {
   const getStatusTone = (status: InventoryItem['status']) => {
     if (status === 'low') return { bar: 'bg-red-500', badge: 'bg-red-100 text-red-700', text: 'text-red-700' };
     if (status === 'high') return { bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-700' };
-    return { bar: 'bg-[#5C1A1B]', badge: 'bg-[#EADDD1] text-[#4D0E13]', text: 'text-[#4D0E13]' };
+    return { bar: 'bg-amber-700', badge: 'bg-amber-100 text-amber-800', text: 'text-amber-800' };
   };
   const unitToBase: Record<Unit, number> = { g: 1, kg: 1000, ml: 1, L: 1000, pcs: 1, units: 1, bottles: 1 };
   const unitGroup: Record<Unit, 'mass' | 'volume' | 'count'> = {

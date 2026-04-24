@@ -92,7 +92,7 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
   const getStatusTone = (status: (typeof inventory)[number]['status']) => {
     if (status === 'low') return { bar: 'bg-[#D9534F]', chip: 'bg-red-100 text-red-700' };
     if (status === 'high') return { bar: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700' };
-    return { bar: 'bg-[#5C1A1B]', chip: 'bg-[#EADDD1] text-[#4D0E13]' };
+    return { bar: 'bg-amber-700', chip: 'bg-amber-100 text-amber-800' };
   };
 
   const visibleOrders = orders.filter(o => {

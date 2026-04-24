@@ -557,9 +557,10 @@ begin
             updated_at = now()
         where id = v_recipe.inventory_item_id;
 
-        insert into inventory_adjustments (inventory_item_id, type, delta, unit, note)
+        insert into inventory_adjustments (inventory_item_id, inventory_item_name, type, delta, unit, note)
         values (
           v_recipe.inventory_item_id,
+          (select name from inventory_items where id = v_recipe.inventory_item_id),
           'recipe_deduction',
           round(-v_delta, 2),
           v_recipe.inventory_unit,
@@ -586,9 +587,10 @@ begin
             updated_at = now()
           where id = v_addon.inventory_item_id;
 
-          insert into inventory_adjustments (inventory_item_id, type, delta, unit, note)
+          insert into inventory_adjustments (inventory_item_id, inventory_item_name, type, delta, unit, note)
           values (
             v_addon.inventory_item_id,
+            (select name from inventory_items where id = v_addon.inventory_item_id),
             'recipe_deduction',
             round(-v_delta, 2),
             v_addon.inventory_unit,

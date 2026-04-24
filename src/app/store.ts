@@ -6,6 +6,7 @@ import {
   syncSupabaseInventoryAdjustment,
   syncSupabaseInventoryItem,
   syncSupabaseOrderCreate,
+  syncSupabaseOrderDelete,
   syncSupabaseOrderStatus,
   syncSupabaseProductWithRecipe,
   syncSupabaseWasteLog,
@@ -893,6 +894,9 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const target = state.orders.find((o) => o.id === orderId);
           const nextOrders = state.orders.filter((order) => order.id !== orderId);
+          if (target) {
+            void syncSupabaseOrderDelete(orderId);
+          }
           return {
             orders: nextOrders,
             clearedOrderIds: state.clearedOrderIds.filter((id) => id !== orderId),
@@ -1081,6 +1085,21 @@ export const useAppStore = create<AppState>()(
 
           const quantityInItemUnit = roundTo2(convertUnits(input.quantity, input.unit, inventoryItem.unit));
           const nextStock = roundTo2(inventoryItem.stock + quantityInItemUnit);
+          const nextStatus = recalcStatus(nextStock, inventoryItem.reorderLevel);
+
+          void syncSupabaseInventoryItem({
+            ...inventoryItem,
+            stock: nextStock,
+            status: nextStatus,
+          });
+          void syncSupabaseInventoryAdjustment({
+            inventoryItemId: inventoryItem.id,
+            inventoryItemName: inventoryItem.name,
+            type: 'batch_add',
+            delta: quantityInItemUnit,
+            unit: inventoryItem.unit,
+            note: `Batch ${input.lotCode} received`,
+          });
 
           return {
             inventoryBatches: {
@@ -1103,7 +1122,7 @@ export const useAppStore = create<AppState>()(
                 ? {
                     ...item,
                     stock: nextStock,
-                    status: recalcStatus(nextStock, item.reorderLevel),
+                    status: nextStatus,
                   }
                 : item
             ),
