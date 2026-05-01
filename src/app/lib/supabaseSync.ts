@@ -236,8 +236,7 @@ const baseHeaders = {
   'Content-Type': 'application/json',
 };
 
-const getHeaders = (extraHeaders: Record<string, string> = {}) => {
-  const session = getStoredSession();
+const getHeaders = (session = getStoredSession(), extraHeaders: Record<string, string> = {}) => {
   return {
     ...baseHeaders,
     ...(session?.access_token
@@ -250,8 +249,16 @@ const getHeaders = (extraHeaders: Record<string, string> = {}) => {
 const request = async <T>(path: string, init: RequestInit = {}): Promise<T | null> => {
   if (!isConfigured) return null;
 
+  let session = getStoredSession();
+  if (session?.access_token && isSupabaseSessionExpired(session)) {
+    const refreshed = await refreshSupabaseSession().catch(() => null);
+    if (refreshed?.access_token) {
+      session = refreshed;
+    }
+  }
+
   const primaryHeaders = {
-    ...getHeaders(),
+    ...getHeaders(session),
     ...(init.headers ?? {}),
   };
 
@@ -324,21 +331,20 @@ const retryWrite = async (label: string, operation: () => Promise<void>) => {
       }
     }
   }
-    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
-    console.error(`[supabaseSync] ${label} failed (attempt 3/3):`, {
-      error: errorMsg,
-      isConfigured,
-      url: SUPABASE_URL || 'NOT_SET',
-      hasAuth: Boolean(getStoredSession()?.access_token),
-    });
-  
-    // Emit sync error event for global monitoring
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('aura-cafe-sync-error', { 
-        detail: { label, error: errorMsg } 
-      }));
-    }
-  
+  const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+  console.error(`[supabaseSync] ${label} failed (attempt 3/3):`, {
+    error: errorMsg,
+    isConfigured,
+    url: SUPABASE_URL || 'NOT_SET',
+    hasAuth: Boolean(getStoredSession()?.access_token),
+  });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('aura-cafe-sync-error', {
+      detail: { label, error: errorMsg },
+    }));
+  }
+
   return false;
 };
 
@@ -1029,13 +1035,23 @@ export const syncSupabaseHistoryEvents = async (events: HistoryEvent[]) => {
   if (!isConfigured || events.length === 0) return false;
 
   try {
+    const safeCreatedAtIso = (value: number) => {
+      const timestamp = Number(value);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) {
+        return new Date().toISOString();
+      }
+
+      const date = new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+    };
+
     await upsertRows('system_history_events', events.map((event) => ({
       id: event.id,
       domain: event.domain,
       kind: classifyHistoryEvent(event),
       title: event.title,
       detail: event.detail,
-      created_at: new Date(event.createdAt).toISOString(),
+      created_at: safeCreatedAtIso(event.createdAt),
     })), 'id');
 
     emitAppSyncSignal('history-event');
