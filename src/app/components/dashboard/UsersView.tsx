@@ -3,12 +3,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../../store';
 import { UserPlus, Trash2, Shield, Coffee, Mail, Lock } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from './ConfirmDialog';
 
 export function UsersView() {
-  const { accounts, addAccount, deleteAccount, userRole } = useAppStore();
+  const accounts = useAppStore((state) => state.accounts);
+  const addAccount = useAppStore((state) => state.addAccount);
+  const deleteAccount = useAppStore((state) => state.deleteAccount);
+  const userRole = useAppStore((state) => state.userRole);
   const [isAdding, setIsAdding] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [pendingDeleteAccount, setPendingDeleteAccount] = useState<{ id: string; email: string } | null>(null);
 
   if (userRole !== 'admin') {
     return (
@@ -32,10 +37,7 @@ export function UsersView() {
   };
 
   const handleDelete = (id: string, email: string) => {
-    if (confirm(`Are you sure you want to delete ${email}?`)) {
-      deleteAccount(id);
-      toast.success('Account deleted');
-    }
+    setPendingDeleteAccount({ id, email });
   };
 
   return (
@@ -152,6 +154,19 @@ export function UsersView() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteAccount)}
+        title={pendingDeleteAccount ? `Delete ${pendingDeleteAccount.email}?` : 'Delete account?'}
+        message="This account will be permanently removed."
+        onCancel={() => setPendingDeleteAccount(null)}
+        onConfirm={() => {
+          if (!pendingDeleteAccount) return;
+          deleteAccount(pendingDeleteAccount.id);
+          toast.success('Account deleted');
+          setPendingDeleteAccount(null);
+        }}
+      />
     </div>
   );
 }

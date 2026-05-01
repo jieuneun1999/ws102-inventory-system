@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Package, AlertCircle, Coffee, CheckCircle2, MoreHorizontal, ChevronRight, Filter, ShoppingBag, BellRing, Timer, TriangleAlert } from 'lucide-react';
 import { useAppStore } from '../../store';
 import type { DashboardView } from './Sidebar';
 import { toast } from 'sonner';
+import { fetchPaymentReconciliationReports, fetchRefundAuditLogs, fetchShiftSessions, type PaymentReconciliationReportSummary, type RefundAuditLogSummary, type ShiftSessionSummary } from '../../lib/supabaseSync';
 
 interface OverviewViewProps {
   onNavigate: (view: DashboardView) => void;
@@ -13,11 +14,24 @@ const mockCustomerNames = [
 ];
 
 export function OverviewView({ onNavigate }: OverviewViewProps) {
-  const { inventory, orders, updateOrderStatus, deleteOrder, inventoryAdjustments, wasteLogs, userRole } = useAppStore();
+  const inventory = useAppStore((state) => state.inventory);
+  const orders = useAppStore((state) => state.orders);
+  const updateOrderStatus = useAppStore((state) => state.updateOrderStatus);
+  const deleteOrder = useAppStore((state) => state.deleteOrder);
+  const inventoryAdjustments = useAppStore((state) => state.inventoryAdjustments);
+  const wasteLogs = useAppStore((state) => state.wasteLogs);
+  const receipts = useAppStore((state) => state.receipts);
+  const userRole = useAppStore((state) => state.userRole);
+  const lastSyncedAt = useAppStore((state) => state.lastSyncedAt);
   const [inventoryTab, setInventoryTab] = useState<'All Items' | 'Ingredients' | 'Materials & Equipment'>('All Items');
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [latestShiftSession, setLatestShiftSession] = useState<ShiftSessionSummary | null>(null);
+  const [latestReconciliation, setLatestReconciliation] = useState<PaymentReconciliationReportSummary | null>(null);
+  const [latestRefundAudit, setLatestRefundAudit] = useState<RefundAuditLogSummary | null>(null);
+  const [operationsLoading, setOperationsLoading] = useState(false);
   const lastOrderActionAt = useRef(0);
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase());
 
   const canActOnOrder = () => {
     const now = Date.now();
@@ -26,45 +40,86 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
     return true;
   };
 
-  const totalItems = inventory.length;
-  const lowStockItems = inventory.filter(i => i.status === 'low');
-  const activeOrders = orders.filter(o => o.status !== 'completed');
-  const completedOrders = orders.filter(o => o.status === 'completed');
   const now = Date.now();
-  const lateOrders = activeOrders.filter((o) => (now - o.createdAt) / 60000 > o.estimatedTime);
+  const totalItems = inventory.length;
 
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const todayOrders = orders.filter((o) => o.createdAt >= startOfDay.getTime());
-  const todayCompleted = todayOrders.filter((o) => o.status === 'completed');
-  const todayRevenue = todayCompleted.reduce((sum, o) => sum + o.total, 0);
+  const startOfDayTimestamp = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return start.getTime();
+  }, []);
+
+  const lowStockItems = useMemo(() => inventory.filter((item) => item.status === 'low'), [inventory]);
+  const activeOrders = useMemo(() => orders.filter((order) => order.status !== 'completed'), [orders]);
+  const completedOrders = useMemo(() => orders.filter((order) => order.status === 'completed'), [orders]);
+  const lateOrders = useMemo(() => activeOrders.filter((order) => (now - order.createdAt) / 60000 > order.estimatedTime), [activeOrders, now]);
+
+  const todayOrders = useMemo(() => orders.filter((order) => order.createdAt >= startOfDayTimestamp), [orders, startOfDayTimestamp]);
+  const todayCompleted = useMemo(() => todayOrders.filter((order) => order.status === 'completed'), [todayOrders]);
+  const todayRevenue = useMemo(() => todayCompleted.reduce((sum, order) => sum + order.total, 0), [todayCompleted]);
+  const todayCashOrders = useMemo(() => todayCompleted.filter((order) => order.paymentMethod === 'cash'), [todayCompleted]);
+  const todayEwalletOrders = useMemo(() => todayCompleted.filter((order) => order.paymentMethod === 'ewallet'), [todayCompleted]);
+  const cashExpected = useMemo(() => todayCashOrders.reduce((sum, order) => sum + order.total, 0), [todayCashOrders]);
+  const cashReceived = useMemo(() => todayCashOrders.reduce((sum, order) => sum + (receipts[order.id]?.cashReceived ?? order.total), 0), [todayCashOrders, receipts]);
+  const cashChangeGiven = useMemo(() => todayCashOrders.reduce((sum, order) => sum + (receipts[order.id]?.changeDue ?? 0), 0), [todayCashOrders, receipts]);
+  const cashVariance = useMemo(() => cashReceived - cashExpected, [cashExpected, cashReceived]);
   const avgPrepMinutes = todayCompleted.length
     ? Math.round(
         todayCompleted.reduce((sum, o) => sum + (o.estimatedTime || 0), 0) / todayCompleted.length
       )
     : 0;
 
-  const actionCenterItems = [
-    ...lateOrders.map((o) => ({
-      id: o.id,
-      label: `Order ${o.orderNumber} exceeded SLA`,
-      detail: `${Math.floor((now - o.createdAt) / 60000)}m elapsed / ${o.estimatedTime}m target`,
+  useEffect(() => {
+    let active = true;
+
+    const loadOperationsSnapshot = async () => {
+      setOperationsLoading(true);
+      try {
+        const [shiftSessions, reconciliationReports, refundLogs] = await Promise.all([
+          fetchShiftSessions(),
+          fetchPaymentReconciliationReports(),
+          fetchRefundAuditLogs(),
+        ]);
+
+        if (!active) return;
+        setLatestShiftSession(shiftSessions[0] ?? null);
+        setLatestReconciliation(reconciliationReports[0] ?? null);
+        setLatestRefundAudit(refundLogs[0] ?? null);
+      } finally {
+        if (active) {
+          setOperationsLoading(false);
+        }
+      }
+    };
+
+    void loadOperationsSnapshot();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const actionCenterItems = useMemo(() => [
+    ...lateOrders.map((order) => ({
+      id: order.id,
+      label: `Order ${order.orderNumber} exceeded SLA`,
+      detail: `${Math.floor((now - order.createdAt) / 60000)}m elapsed / ${order.estimatedTime}m target`,
       kind: 'order' as const,
     })),
-    ...inventory.filter((i) => i.status === 'low').slice(0, 4).map((i) => ({
-      id: i.id,
-      label: `${i.name} is low stock`,
-      detail: `${i.stock} ${i.unit} left (reorder ${i.reorderLevel})`,
+    ...lowStockItems.slice(0, 4).map((item) => ({
+      id: item.id,
+      label: `${item.name} is low stock`,
+      detail: `${item.stock} ${item.unit} left (reorder ${item.reorderLevel})`,
       kind: 'inventory' as const,
     })),
-  ].slice(0, 6);
+  ].slice(0, 6), [lateOrders, lowStockItems, now]);
 
-  const smartAlerts = [
+  const smartAlerts = useMemo(() => [
     ...(lateOrders.length > 0
       ? [{ id: 'alert-late', text: `${lateOrders.length} order(s) are over SLA right now.` }]
       : []),
-    ...(inventory.filter((i) => i.status === 'low').length > 0
-      ? [{ id: 'alert-lowstock', text: `${inventory.filter((i) => i.status === 'low').length} inventory item(s) are low.` }]
+    ...(lowStockItems.length > 0
+      ? [{ id: 'alert-lowstock', text: `${lowStockItems.length} inventory item(s) are low.` }]
       : []),
     ...(wasteLogs.length > 0
       ? [{ id: 'alert-waste', text: `${wasteLogs.length} waste log(s) recorded. Review recurring causes.` }]
@@ -72,40 +127,54 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
     ...(inventoryAdjustments.length > 10
       ? [{ id: 'alert-adjust', text: `High manual adjustments detected (${inventoryAdjustments.length}).` }]
       : []),
-  ].slice(0, 4);
+  ].slice(0, 4), [inventoryAdjustments.length, lateOrders.length, lowStockItems.length, wasteLogs.length]);
 
-  const stats = [
+  const stats = useMemo(() => [
     { title: "Total Items", value: totalItems.toString(), desc: "All inventory items", icon: Package, color: "text-[#4D0E13]" },
     { title: "Low Stock Items", value: lowStockItems.length.toString(), desc: "Needs restocking", icon: AlertCircle, color: "text-red-500", badge: true },
     { title: "Active Orders", value: activeOrders.length.toString(), desc: "In progress", icon: Coffee, color: "text-[#4D0E13]" },
     { title: "Completed Today", value: completedOrders.length.toString(), desc: "Orders completed", icon: CheckCircle2, color: "text-green-600" }
-  ];
+  ], [activeOrders.length, completedOrders.length, lowStockItems.length, totalItems]);
 
-  const filteredInventory = inventory.filter(item => {
+  const filteredInventory = useMemo(() => inventory.filter((item) => {
     if (showLowStockOnly && item.status !== 'low') return false;
     if (inventoryTab === 'Ingredients' && item.category !== 'Ingredients') return false;
     if (inventoryTab === 'Materials & Equipment' && item.category === 'Ingredients') return false;
-    if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (deferredSearchQuery && !item.name.toLowerCase().includes(deferredSearchQuery)) return false;
     return true;
-  });
+  }), [deferredSearchQuery, inventory, inventoryTab, showLowStockOnly]);
 
   const getStatusTone = (status: (typeof inventory)[number]['status']) => {
     if (status === 'low') return { bar: 'bg-[#D9534F]', chip: 'bg-red-100 text-red-700' };
     if (status === 'high') return { bar: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700' };
-    return { bar: 'bg-amber-700', chip: 'bg-amber-100 text-amber-800' };
+    return { bar: 'bg-[#5C1A1B]', chip: 'bg-[#EADDD1] text-[#4D0E13]' };
   };
 
-  const visibleOrders = orders.filter(o => {
-    if (o.status === 'completed') return false;
-    if (searchQuery && !o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) && !o.items.some(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()))) return false;
+  const getStatusLabel = (status: (typeof inventory)[number]['status']) => {
+    if (status === 'high') return 'Full';
+    if (status === 'low') return 'Low';
+    return 'Normal';
+  };
+
+  const formatRelativeUpdatedAt = (timestamp: number) => {
+    const diffSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (diffSeconds < 60) return 'Updated just now';
+    if (diffSeconds < 3600) return `Updated ${Math.floor(diffSeconds / 60)}m ago`;
+    if (diffSeconds < 86400) return `Updated ${Math.floor(diffSeconds / 3600)}h ago`;
+    return `Updated ${Math.floor(diffSeconds / 86400)}d ago`;
+  };
+
+  const visibleOrders = useMemo(() => orders.filter((order) => {
+    if (order.status === 'completed') return false;
+    if (deferredSearchQuery && !order.orderNumber.toLowerCase().includes(deferredSearchQuery) && !order.items.some((item) => item.name.toLowerCase().includes(deferredSearchQuery))) return false;
     return true;
-  });
+  }), [deferredSearchQuery, orders]);
 
-  const orderGroups = {
-    pending: visibleOrders.filter(o => o.status === 'pending'),
-    preparing: visibleOrders.filter(o => o.status === 'preparing'),
-    ready: visibleOrders.filter(o => o.status === 'ready'),
-  };
+  const orderGroups = useMemo(() => ({
+    pending: visibleOrders.filter((order) => order.status === 'pending'),
+    preparing: visibleOrders.filter((order) => order.status === 'preparing'),
+    ready: visibleOrders.filter((order) => order.status === 'ready'),
+  }), [visibleOrders]);
 
   const moveOrder = (orderId: string, next: 'pending' | 'preparing' | 'ready' | 'completed', message: string) => {
     if (!canActOnOrder()) return;
@@ -118,6 +187,12 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
     deleteOrder(orderId);
     toast.warning('Order voided and deleted from queue.');
   };
+
+  const latestInventoryUpdateAt = useMemo(() => (
+    inventoryAdjustments.length > 0
+      ? Math.max(...inventoryAdjustments.map((adjustment) => adjustment.createdAt))
+      : null
+  ), [inventoryAdjustments]);
 
   return (
     <div className="w-full flex flex-col gap-6 pb-8 sm:pb-12 pr-0 sm:pr-2">
@@ -170,6 +245,83 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
             )}
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="xl:col-span-2 bg-white/60 backdrop-blur-xl border border-white/80 rounded-[1.5rem] p-5 shadow-[0_4px_24px_rgba(77,14,19,0.02)]">
+          <div className="flex items-center gap-2 mb-3">
+            <Timer size={18} className="text-[#4D0E13]" />
+            <h3 className="text-lg font-serif text-[#4D0E13]">Cash Desk & Shift Pulse</h3>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white/60 border border-[#D8C4AC]/30 rounded-xl p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#4D0E13]/45">Cash Sales</p>
+              <p className="font-serif text-2xl text-[#4D0E13]">₱{cashExpected.toFixed(0)}</p>
+            </div>
+            <div className="bg-white/60 border border-[#D8C4AC]/30 rounded-xl p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#4D0E13]/45">Cash Received</p>
+              <p className="font-serif text-2xl text-[#4D0E13]">₱{cashReceived.toFixed(0)}</p>
+            </div>
+            <div className="bg-white/60 border border-[#D8C4AC]/30 rounded-xl p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#4D0E13]/45">Cash Variance</p>
+              <p className={`font-serif text-2xl ${cashVariance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>₱{cashVariance.toFixed(0)}</p>
+            </div>
+            <div className="bg-white/60 border border-[#D8C4AC]/30 rounded-xl p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#4D0E13]/45">E-wallet Sales</p>
+              <p className="font-serif text-2xl text-[#4D0E13]">₱{todayEwalletOrders.reduce((sum, order) => sum + order.total, 0).toFixed(0)}</p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3 text-xs text-[#4D0E13]/55">
+            <div className="rounded-xl border border-[#D8C4AC]/25 bg-white/55 px-3 py-2">
+              <p className="font-bold uppercase tracking-wider text-[10px] text-[#4D0E13]/40">Latest shift</p>
+              <p className="mt-1 font-medium text-[#4D0E13]">
+                {operationsLoading ? 'Loading...' : latestShiftSession ? `${latestShiftSession.status} • ₱${latestShiftSession.openingCash.toFixed(2)} open` : 'No shift yet'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#D8C4AC]/25 bg-white/55 px-3 py-2">
+              <p className="font-bold uppercase tracking-wider text-[10px] text-[#4D0E13]/40">Latest reconciliation</p>
+              <p className="mt-1 font-medium text-[#4D0E13]">
+                {operationsLoading ? 'Loading...' : latestReconciliation ? `₱${latestReconciliation.variance.toFixed(2)} variance` : 'No report yet'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#D8C4AC]/25 bg-white/55 px-3 py-2">
+              <p className="font-bold uppercase tracking-wider text-[10px] text-[#4D0E13]/40">Latest refund</p>
+              <p className="mt-1 font-medium text-[#4D0E13]">
+                {operationsLoading ? 'Loading...' : latestRefundAudit ? `#${latestRefundAudit.orderNumber} • ₱${latestRefundAudit.amount.toFixed(2)}` : 'No refund logs'}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-[#4D0E13]/50">
+            Change given today: ₱{cashChangeGiven.toFixed(2)}. This mirrors the shift and reconciliation audit trail.
+          </p>
+        </div>
+
+        <div className="bg-white/60 backdrop-blur-xl border border-white/80 rounded-[1.5rem] p-5 shadow-[0_4px_24px_rgba(77,14,19,0.02)]">
+          <div className="flex items-center gap-2 mb-3">
+            <ShoppingBag size={18} className="text-[#4D0E13]" />
+            <h3 className="text-lg font-serif text-[#4D0E13]">Operational Mix</h3>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-xl border border-[#D8C4AC]/30 bg-white/60 px-3 py-2">
+              <span className="text-sm text-[#4D0E13]/70">Completed orders</span>
+              <span className="text-sm font-bold text-[#4D0E13]">{todayCompleted.length}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-[#D8C4AC]/30 bg-white/60 px-3 py-2">
+              <span className="text-sm text-[#4D0E13]/70">Cash orders</span>
+              <span className="text-sm font-bold text-[#4D0E13]">{todayCashOrders.length}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-[#D8C4AC]/30 bg-white/60 px-3 py-2">
+              <span className="text-sm text-[#4D0E13]/70">E-wallet orders</span>
+              <span className="text-sm font-bold text-[#4D0E13]">{todayEwalletOrders.length}</span>
+            </div>
+            <button
+              onClick={() => onNavigate('history')}
+              className="w-full rounded-full bg-[#4D0E13] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#EEE4DA] hover:bg-[#3a0a0e]"
+            >
+              Review audit trail
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Daily Ops Summary + Action Center + Smart Alerts */}
@@ -243,12 +395,24 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
               <Package size={22} className="text-[#4D0E13]" />
               <h3 className="text-[22px] font-serif text-[#4D0E13] tracking-tight">Inventory Overview</h3>
             </div>
-            <button 
-              onClick={() => onNavigate('inventory')}
-              className="text-xs font-semibold text-[#4D0E13]/70 hover:text-[#4D0E13] flex items-center gap-1"
-            >
-              View all inventory <ChevronRight size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live
+              </span>
+              <span className="text-[11px] font-semibold text-[#4D0E13]/60">
+                {latestInventoryUpdateAt
+                  ? `Latest Inventory Update: ${new Date(latestInventoryUpdateAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}`
+                  : lastSyncedAt
+                  ? `Last Synced: ${new Date(lastSyncedAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Waiting for First Sync'}
+              </span>
+              <button 
+                onClick={() => onNavigate('inventory')}
+                className="text-xs font-semibold text-[#4D0E13]/70 hover:text-[#4D0E13] flex items-center gap-1"
+              >
+                View all inventory <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
@@ -304,7 +468,7 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
                         {item.category}
                       </span>
                       <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-md inline-block ${getStatusTone(item.status).chip}`}>
-                        {item.status === 'high' ? 'full' : item.status}
+                        {getStatusLabel(item.status)}
                       </span>
                     </div>
 
@@ -323,7 +487,12 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
 
                     <div className="w-full sm:w-24 text-left sm:text-right shrink-0">
                       <p className="font-serif text-[#4D0E13] text-base">{item.stock} {item.unit}</p>
-                      <p className="text-[10px] font-medium text-[#4D0E13]/40 mt-0.5">Updated 2h ago</p>
+                      <p
+                        className="text-[10px] font-medium text-[#4D0E13]/40 mt-0.5"
+                        title={new Date(item.updatedAt).toLocaleString()}
+                      >
+                        {formatRelativeUpdatedAt(item.updatedAt)}
+                      </p>
                     </div>
 
                     <button 
@@ -408,12 +577,6 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
 
                               {order.status === 'preparing' && (
                                 <>
-                                  <button
-                                    onClick={() => moveOrder(order.id, 'pending', 'Order moved back to pending.')}
-                                    className="px-2.5 py-1 bg-[#F5EFE6] hover:bg-[#EADDD1] text-[#4D0E13] rounded-lg text-[10px] font-bold shadow-sm transition-colors uppercase tracking-wider"
-                                  >
-                                    To Pending
-                                  </button>
                                   <button
                                     onClick={() => moveOrder(order.id, 'ready', 'Order marked as ready.')}
                                     className="px-2.5 py-1 bg-[#C8A49F] hover:bg-[#b08b86] text-white rounded-lg text-[10px] font-bold shadow-sm transition-colors uppercase tracking-wider"

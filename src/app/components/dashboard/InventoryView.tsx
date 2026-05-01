@@ -1,35 +1,46 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Edit2, Trash2, X, AlertCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, AlertCircle, Search } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { DRINK_ADD_ONS, useAppStore, type InventoryItem, type Unit, type WasteReason } from '../../store';
 import { toast } from 'sonner';
+import { ConfirmDialog } from './ConfirmDialog';
+import { ExpandableDescription } from '../ui/ExpandableDescription';
 
 type Tab = 'All' | 'Ingredients' | 'Materials' | 'Equipment' | 'Add-ons' | 'Low Stock';
-type StockAction = 'receive' | 'correction' | 'waste';
+type StockAction = 'stock_in' | 'correction' | 'waste';
 type CorrectionMode = 'delta' | 'set';
 type CorrectionDirection = 'add' | 'subtract';
+type SortOption = 'name' | 'status' | 'latest_stock_add' | 'linked_product';
 
 export function InventoryView() {
-  const {
-    inventory,
-    userRole,
-    addInventoryItem,
-    updateInventoryItem,
-    deleteInventoryItem,
-    inventoryAdjustments,
-    adjustInventory,
-    logWaste,
-  } = useAppStore();
+  const inventory = useAppStore((state) => state.inventory);
+  const products = useAppStore((state) => state.products);
+  const productRecipes = useAppStore((state) => state.productRecipes);
+  const userRole = useAppStore((state) => state.userRole);
+  const addInventoryItem = useAppStore((state) => state.addInventoryItem);
+  const updateInventoryItem = useAppStore((state) => state.updateInventoryItem);
+  const deleteInventoryItem = useAppStore((state) => state.deleteInventoryItem);
+  const inventoryAdjustments = useAppStore((state) => state.inventoryAdjustments);
+  const stockInventory = useAppStore((state) => state.stockInventory);
+  const adjustInventory = useAppStore((state) => state.adjustInventory);
+  const logWaste = useAppStore((state) => state.logWaste);
   const isAdmin = userRole === 'admin';
   const [activeTab, setActiveTab] = useState<Tab>('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState<SortOption>('name');
+  const [productFilter, setProductFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<InventoryItem | null>(null);
+  const [capDrafts, setCapDrafts] = useState<Record<string, string>>({});
   const [newItem, setNewItem] = useState({
     name: '',
     category: 'Ingredients' as InventoryItem['category'],
     stock: 0,
     unit: 'kg' as Unit,
-    reorderLevel: 5
+    reorderLevel: 5,
+    monthlyRestockCap: ''
   });
   const [stockModal, setStockModal] = useState<{
     open: boolean;
@@ -42,6 +53,7 @@ export function InventoryView() {
     unit: Unit;
     reason: WasteReason;
     note: string;
+    monthlyRestockCap: string;
   }>({
     open: false,
     item: null,
@@ -53,14 +65,20 @@ export function InventoryView() {
     unit: 'pcs',
     reason: 'expired',
     note: '',
+    monthlyRestockCap: '1',
   });
 
   const unitChoices: Unit[] = ['g', 'kg', 'ml', 'L', 'pcs', 'units', 'bottles'];
   const formatStock = (value: number) => value.toFixed(2);
+  const getStatusLabel = (status: InventoryItem['status']) => {
+    if (status === 'high') return 'Full';
+    if (status === 'low') return 'Low';
+    return 'Normal';
+  };
   const getStatusTone = (status: InventoryItem['status']) => {
     if (status === 'low') return { bar: 'bg-red-500', badge: 'bg-red-100 text-red-700', text: 'text-red-700' };
     if (status === 'high') return { bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-700' };
-    return { bar: 'bg-amber-700', badge: 'bg-amber-100 text-amber-800', text: 'text-amber-800' };
+    return { bar: 'bg-[#5C1A1B]', badge: 'bg-[#EADDD1] text-[#4D0E13]', text: 'text-[#4D0E13]' };
   };
   const unitToBase: Record<Unit, number> = { g: 1, kg: 1000, ml: 1, L: 1000, pcs: 1, units: 1, bottles: 1 };
   const unitGroup: Record<Unit, 'mass' | 'volume' | 'count'> = {
@@ -78,18 +96,45 @@ export function InventoryView() {
     return (amount * unitToBase[from]) / unitToBase[to];
   };
 
-  const computeForecastDays = (itemId: string, stock: number) => {
-    const recentMs = 14 * 24 * 60 * 60 * 1000;
-    const since = Date.now() - recentMs;
-    const consumption = inventoryAdjustments
-      .filter((adj) => adj.inventoryItemId === itemId && adj.createdAt >= since && adj.delta < 0)
-      .reduce((sum, adj) => sum + Math.abs(adj.delta), 0);
+  const recentConsumptionByItem = useMemo(() => {
+    const recentWindowStart = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const map = new Map<string, number>();
+    inventoryAdjustments.forEach((adj) => {
+      if (adj.createdAt < recentWindowStart || adj.delta >= 0) return;
+      map.set(adj.inventoryItemId, (map.get(adj.inventoryItemId) ?? 0) + Math.abs(adj.delta));
+    });
+    return map;
+  }, [inventoryAdjustments]);
 
+  const monthRestockAddedByItem = useMemo(() => {
+    const monthStartDate = new Date();
+    monthStartDate.setDate(1);
+    monthStartDate.setHours(0, 0, 0, 0);
+    const monthStart = monthStartDate.getTime();
+    const map = new Map<string, number>();
+    inventoryAdjustments.forEach((adj) => {
+      if (adj.createdAt < monthStart || adj.delta <= 0) return;
+      if (!['item_add', 'batch_add'].includes(adj.type)) return;
+      map.set(adj.inventoryItemId, (map.get(adj.inventoryItemId) ?? 0) + adj.delta);
+    });
+    return map;
+  }, [inventoryAdjustments]);
+
+  const computeForecastDays = (itemId: string, stock: number) => {
+    const consumption = recentConsumptionByItem.get(itemId) ?? 0;
     if (consumption <= 0) return null;
     const avgDaily = consumption / 14;
     if (avgDaily <= 0) return null;
     return Math.max(0, Math.round(stock / avgDaily));
   };
+
+  const formatMonthlyCap = (cap: number, unit: Unit) => {
+    const normalized = Number(cap ?? 0);
+    if (!Number.isFinite(normalized) || normalized <= 0) return `0.00 ${unit}`;
+    return `${normalized.toFixed(2)} ${unit}`;
+  };
+
+  const getMonthlyRestockTotal = (itemId: string) => monthRestockAddedByItem.get(itemId) ?? 0;
 
   const openStockModal = (item: InventoryItem) => {
     setStockModal({
@@ -103,6 +148,7 @@ export function InventoryView() {
       unit: item.unit,
       reason: 'expired',
       note: '',
+      monthlyRestockCap: item.monthlyRestockCap.toFixed(2),
     });
   };
 
@@ -112,6 +158,15 @@ export function InventoryView() {
 
   const submitStockModal = () => {
     if (!stockModal.item) return;
+    const monthlyCapNum = Number(stockModal.monthlyRestockCap);
+    if (!Number.isFinite(monthlyCapNum) || monthlyCapNum <= 0) {
+      toast.error('Monthly max stock is required and must be greater than zero.');
+      return;
+    }
+    const normalizedMonthlyCap = Number(monthlyCapNum.toFixed(2));
+    if (Math.abs(normalizedMonthlyCap - stockModal.item.monthlyRestockCap) > 0.0001) {
+      updateInventoryItem(stockModal.item.id, { monthlyRestockCap: normalizedMonthlyCap }, 'Monthly max stock updated');
+    }
 
     const quantityNum = Number(stockModal.quantity);
     const exactNum = Number(stockModal.exactStock);
@@ -127,12 +182,18 @@ export function InventoryView() {
       return;
     }
 
-    if (stockModal.action === 'receive') {
+    if (stockModal.action === 'stock_in') {
       if (!quantityNum || quantityNum <= 0) {
-        toast.error('Enter a valid received quantity.');
+        toast.error('Enter a valid stock in quantity.');
         return;
       }
-      adjustInventory(stockModal.item.id, quantityNum, stockModal.unit, stockModal.note || 'Stock received');
+      const incoming = convertUnits(quantityNum, stockModal.unit, stockModal.item.unit);
+      const monthlyAdded = getMonthlyRestockTotal(stockModal.item.id);
+      if (monthlyAdded + incoming > normalizedMonthlyCap) {
+        toast.error('Cannot add anymore, exceeds the maximum quantity for this month.');
+        return;
+      }
+      stockInventory(stockModal.item.id, quantityNum, stockModal.unit, stockModal.note || 'Stock in');
       toast.success(`${stockModal.item.name} updated.`);
       closeStockModal();
       return;
@@ -143,6 +204,13 @@ export function InventoryView() {
         toast.error('Enter a valid exact stock value.');
         return;
       }
+      const item = stockModal.item;
+      const incoming = Math.max(0, exactNum - item.stock);
+      const monthlyAdded = getMonthlyRestockTotal(item.id);
+      if (monthlyAdded + incoming > normalizedMonthlyCap) {
+        toast.error('Cannot add anymore, exceeds the maximum quantity for this month.');
+        return;
+      }
       updateInventoryItem(stockModal.item.id, { stock: exactNum }, stockModal.note || 'Count correction');
       toast.success(`${stockModal.item.name} corrected.`);
       closeStockModal();
@@ -151,6 +219,19 @@ export function InventoryView() {
 
     if (!quantityNum || Number.isNaN(quantityNum)) {
       toast.error('Enter a valid correction quantity.');
+      return;
+    }
+    if (stockModal.correctionDirection === 'add') {
+      const item = stockModal.item;
+      const incoming = convertUnits(Math.abs(quantityNum), stockModal.unit, item.unit);
+      const monthlyAdded = getMonthlyRestockTotal(item.id);
+      if (monthlyAdded + incoming > normalizedMonthlyCap) {
+        toast.error('Cannot add anymore, exceeds the maximum quantity for this month.');
+        return;
+      }
+      stockInventory(stockModal.item.id, quantityNum, stockModal.unit, stockModal.note || 'Stock in');
+      toast.success(`${stockModal.item.name} updated.`);
+      closeStockModal();
       return;
     }
     const signedDelta = stockModal.correctionDirection === 'subtract' ? -Math.abs(quantityNum) : Math.abs(quantityNum);
@@ -168,7 +249,7 @@ export function InventoryView() {
       const delta = convertUnits(qty, stockModal.unit, stockModal.item.unit);
       return Math.max(0, current - delta);
     }
-    if (stockModal.action === 'receive') {
+    if (stockModal.action === 'stock_in') {
       const qty = Number(stockModal.quantity);
       if (!qty || qty <= 0) return current;
       const delta = convertUnits(qty, stockModal.unit, stockModal.item.unit);
@@ -191,6 +272,46 @@ export function InventoryView() {
     []
   );
 
+  const itemIdByLowerName = useMemo(() => {
+    const map = new Map<string, string>();
+    inventory.forEach((item) => {
+      map.set(item.name.trim().toLowerCase(), item.id);
+    });
+    return map;
+  }, [inventory]);
+
+  const inventoryProductMap = useMemo(() => {
+    const map = new Map<string, Array<{ id: string; name: string }>>();
+
+    products.forEach((product) => {
+      const recipe = productRecipes[product.id] ?? [];
+      recipe.forEach((entry) => {
+        const linkedInventoryId = entry.inventoryItemId ?? itemIdByLowerName.get(entry.inventoryName.trim().toLowerCase());
+        if (!linkedInventoryId) return;
+
+        const current = map.get(linkedInventoryId) ?? [];
+        if (!current.some((linked) => linked.id === product.id)) {
+          current.push({ id: product.id, name: product.name });
+        }
+        map.set(linkedInventoryId, current);
+      });
+    });
+
+    map.forEach((linkedProducts, key) => {
+      linkedProducts.sort((a, b) => a.name.localeCompare(b.name));
+      map.set(key, linkedProducts);
+    });
+
+    return map;
+  }, [products, productRecipes, itemIdByLowerName]);
+
+  const productFilterOptions = useMemo(() => {
+    return products
+      .filter((product) => (productRecipes[product.id] ?? []).length > 0)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, productRecipes]);
+
   const filteredInventory = useMemo(() => {
     let filtered = inventory;
     if (activeTab === 'Low Stock') {
@@ -204,15 +325,101 @@ export function InventoryView() {
     } else if (activeTab !== 'All') {
       filtered = inventory.filter(item => item.category === activeTab);
     }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter((item) =>
+        item.name.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query) ||
+        (inventoryProductMap.get(item.id) ?? []).some((product) => product.name.toLowerCase().includes(query))
+      );
+    }
+
+    if (productFilter !== 'all') {
+      filtered = filtered.filter((item) =>
+        (inventoryProductMap.get(item.id) ?? []).some((product) => product.id === productFilter)
+      );
+    }
+
+    const statusRank: Record<InventoryItem['status'], number> = {
+      low: 0,
+      normal: 1,
+      high: 2,
+    };
+
+    const latestStockAddedMap = new Map<string, number>();
+    inventoryAdjustments.forEach((adj) => {
+      if (adj.delta <= 0) return;
+      const prev = latestStockAddedMap.get(adj.inventoryItemId) ?? 0;
+      if (adj.createdAt > prev) {
+        latestStockAddedMap.set(adj.inventoryItemId, adj.createdAt);
+      }
+    });
+
+    filtered = [...filtered].sort((a, b) => {
+      if (sortOption === 'status') {
+        const diff = statusRank[a.status] - statusRank[b.status];
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name);
+      }
+
+      if (sortOption === 'linked_product') {
+        const aLinked = inventoryProductMap.get(a.id) ?? [];
+        const bLinked = inventoryProductMap.get(b.id) ?? [];
+        const aFirst = aLinked[0]?.name ?? '';
+        const bFirst = bLinked[0]?.name ?? '';
+        if (aFirst && bFirst) {
+          const byProduct = aFirst.localeCompare(bFirst);
+          if (byProduct !== 0) return byProduct;
+        }
+        if (aFirst && !bFirst) return -1;
+        if (!aFirst && bFirst) return 1;
+        return a.name.localeCompare(b.name);
+      }
+
+      if (sortOption === 'latest_stock_add') {
+        const aTs = latestStockAddedMap.get(a.id) ?? 0;
+        const bTs = latestStockAddedMap.get(b.id) ?? 0;
+        if (aTs !== bTs) return bTs - aTs;
+        return a.name.localeCompare(b.name);
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+
     return filtered;
-  }, [inventory, activeTab, addOnInventoryNames]);
+  }, [
+    inventory,
+    activeTab,
+    searchQuery,
+    productFilter,
+    addOnInventoryNames,
+    inventoryAdjustments,
+    sortOption,
+    inventoryProductMap,
+  ]);
 
   const handleDeleteItem = (item: InventoryItem) => {
     if (!isAdmin) return;
-    const shouldDelete = window.confirm(`Delete inventory item "${item.name}"? This action cannot be undone.`);
-    if (!shouldDelete) return;
-    deleteInventoryItem(item.id);
-    toast.success('Item removed');
+    setPendingDeleteItem(item);
+  };
+
+  const saveMonthlyCap = (item: InventoryItem) => {
+    const raw = capDrafts[item.id] ?? item.monthlyRestockCap.toFixed(2);
+    const nextCap = Number(raw);
+    if (!Number.isFinite(nextCap) || nextCap <= 0) {
+      toast.error('Monthly max stock must be greater than zero.');
+      return;
+    }
+    const normalized = Number(nextCap.toFixed(2));
+    if (Math.abs(normalized - item.monthlyRestockCap) < 0.0001) {
+      toast.message('Monthly max stock is unchanged.');
+      return;
+    }
+    updateInventoryItem(item.id, { monthlyRestockCap: normalized }, 'Monthly max stock updated');
+    setCapDrafts((prev) => ({ ...prev, [item.id]: normalized.toFixed(2) }));
+    toast.success(`Monthly max stock updated for ${item.name}.`);
   };
 
   const handleAddItem = () => {
@@ -220,8 +427,14 @@ export function InventoryView() {
       toast.error('Please enter an item name');
       return;
     }
+    const monthlyCapNum = Number(newItem.monthlyRestockCap);
+    if (!Number.isFinite(monthlyCapNum) || monthlyCapNum <= 0) {
+      toast.error('Monthly max stock is required and must be greater than zero.');
+      return;
+    }
     addInventoryItem({
       ...newItem,
+      monthlyRestockCap: Number(monthlyCapNum.toFixed(2)),
       status: newItem.stock <= newItem.reorderLevel ? 'low' : newItem.stock > newItem.reorderLevel * 2 ? 'high' : 'normal'
     });
     toast.success('Item added successfully!', {
@@ -233,7 +446,8 @@ export function InventoryView() {
       category: 'Ingredients',
       stock: 0,
       unit: 'kg',
-      reorderLevel: 5
+      reorderLevel: 5,
+      monthlyRestockCap: '1'
     });
   };
 
@@ -273,6 +487,50 @@ export function InventoryView() {
         </div>
       </div>
 
+      {/* Search + Sort Controls */}
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-center">
+        <div className="flex items-center gap-2 bg-white/50 border border-[#D8C4AC]/30 rounded-xl px-3.5 py-2.5 backdrop-blur-md">
+          <Search size={16} className="text-[#4D0E13]/60" />
+          <input
+            type="text"
+            placeholder="Search item, category, or mapped product..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 bg-transparent text-sm text-[#4D0E13] placeholder-[#4D0E13]/40 outline-none"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 bg-white/50 border border-[#D8C4AC]/30 rounded-xl px-3 py-2 backdrop-blur-md">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-[#4D0E13]/55">Product</span>
+          <select
+            value={productFilter}
+            onChange={(e) => setProductFilter(e.target.value)}
+            className="bg-white/80 border border-[#D8C4AC]/30 rounded-lg px-2 py-1 text-xs font-semibold text-[#4D0E13]"
+          >
+            <option value="all">All products</option>
+            {productFilterOptions.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 bg-white/50 border border-[#D8C4AC]/30 rounded-xl px-3 py-2 backdrop-blur-md">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-[#4D0E13]/55">Sort</span>
+          <select
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value as SortOption)}
+            className="bg-white/80 border border-[#D8C4AC]/30 rounded-lg px-2 py-1 text-xs font-semibold text-[#4D0E13]"
+          >
+            <option value="name">Name (A-Z)</option>
+            <option value="status">Stock Status</option>
+            <option value="linked_product">Mapped Product</option>
+            <option value="latest_stock_add">Latest Stock Added</option>
+          </select>
+        </div>
+      </div>
+
       <div className="flex overflow-x-auto gap-2 mb-6 hide-scrollbar pb-1">
         {tabs.map((tab) => (
           <button
@@ -298,23 +556,27 @@ export function InventoryView() {
       </div>
 
       {viewMode === 'cards' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-          <AnimatePresence mode="popLayout">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 items-stretch auto-rows-fr">
+          <AnimatePresence initial={false}>
             {filteredInventory.map((item) => {
               const isLow = item.status === 'low';
+              const isCapReached = item.status === 'high';
               const tone = getStatusTone(item.status);
-              const progress = Math.min(100, Math.max(0, (item.stock / (item.reorderLevel * 3)) * 100));
+              const visualCap = item.monthlyRestockCap > 0 ? item.monthlyRestockCap : Math.max(item.reorderLevel * 3, 1);
+              const progress = item.status === 'high'
+                ? 100
+                : Math.min(100, Math.max(0, (item.stock / visualCap) * 100));
               const forecastDays = computeForecastDays(item.id, item.stock);
+              const linkedProducts = inventoryProductMap.get(item.id) ?? [];
 
               return (
                 <motion.div
-                  layout
                   key={item.id}
-                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-                  className={`relative overflow-hidden bg-white/60 backdrop-blur-xl border p-6 rounded-[1.5rem] shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 ${
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className={`relative overflow-hidden bg-white/60 backdrop-blur-xl border p-5 rounded-[1.5rem] shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex h-full min-h-[30rem] flex-col ${
                     isLow ? 'border-red-200/50 bg-red-50/20' : 'border-white/50'
                   }`}
                 >
@@ -322,44 +584,114 @@ export function InventoryView() {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 rounded-bl-full -mr-16 -mt-16 mix-blend-multiply opacity-50 blur-xl" />
                   )}
 
-                  <div className="flex justify-between items-start mb-4 relative z-10">
-                    <div>
-                      <span className="text-xs font-bold text-[#4D0E13]/50 uppercase tracking-wider bg-[#D8C4AC]/20 px-2.5 py-1 rounded-md mb-2 inline-block">
-                        {item.category}
-                      </span>
-                      {addOnInventoryNames.has(item.name.trim().toLowerCase()) && (
-                        <span className="ml-2 text-[10px] font-bold text-[#4D0E13] uppercase tracking-wider bg-[#EADDD1] px-2.5 py-1 rounded-md inline-block">
-                          Add-on stock
+                  <div className="relative z-10 flex flex-1 flex-col">
+                    <div className="mb-3.5 min-h-[4.25rem]">
+                      <div className="flex min-h-[2.75rem] flex-wrap content-start items-start gap-1.5">
+                        <span className="text-xs font-bold text-[#4D0E13]/50 uppercase tracking-wider bg-[#D8C4AC]/20 px-2.5 py-1 rounded-md inline-flex items-center">
+                          {item.category}
                         </span>
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-md inline-flex items-center ${tone.badge}`}>
+                          {getStatusLabel(item.status)}
+                        </span>
+                        {addOnInventoryNames.has(item.name.trim().toLowerCase()) ? (
+                          <span className="text-[10px] font-bold text-[#4D0E13] uppercase tracking-wider bg-[#EADDD1] px-2.5 py-1 rounded-md inline-flex items-center">
+                            Add-on stock
+                          </span>
+                        ) : (
+                          <span className="invisible text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md inline-flex items-center">
+                            Add-on stock
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="mt-1.5 min-h-[2.25rem] font-serif text-xl leading-tight text-[#4D0E13] line-clamp-2">
+                        {item.name}
+                      </h4>
+                    </div>
+
+                    <div className="mb-5 flex flex-1 flex-col">
+                      <div className="flex min-h-[2.5rem] items-baseline gap-1.5">
+                        <span className={`text-3xl sm:text-4xl font-serif ${tone.text}`}>
+                          {formatStock(item.stock)}
+                        </span>
+                        <span className="text-sm font-medium text-[#4D0E13]/60">{item.unit}</span>
+                      </div>
+
+                      <div className="w-full h-1.5 bg-[#D8C4AC]/30 rounded-full mt-3 overflow-hidden">
+                        <motion.div
+                          initial={false}
+                          animate={{ width: `${progress}%` }}
+                          transition={{ duration: 0.35, ease: 'easeOut' }}
+                          className={`h-full rounded-full ${tone.bar}`}
+                        />
+                      </div>
+                      <p className="text-xs text-[#4D0E13]/50 mt-1.5 font-medium">Reorder at {item.reorderLevel} {item.unit}</p>
+                      <p className="text-xs text-[#4D0E13]/50 mt-1 font-medium">
+                        Monthly cap:{' '}
+                        {formatMonthlyCap(item.monthlyRestockCap, item.unit)}
+                      </p>
+                      <div className="mt-1 min-h-[4.5rem]">
+                        {linkedProducts.length > 0 ? (
+                          <ExpandableDescription
+                            id={`inventory-used-by-${item.id}`}
+                            text={`Used by: ${linkedProducts.map((product) => product.name).join(', ')}`}
+                            clampLines={2}
+                            className="mt-0"
+                            paragraphClassName="text-left"
+                            textClassName="text-xs text-[#4D0E13]/55 font-medium leading-5"
+                            buttonClassName="mt-0.5 text-[10px] font-bold text-[#4D0E13]/65 uppercase tracking-[0.16em]"
+                            fadeClassName="bg-gradient-to-t from-white/95 via-white/65 to-transparent"
+                            wrapperClassName="min-h-[4.5rem]"
+                          />
+                        ) : (
+                          <div className="invisible text-xs font-medium leading-5">Used by: none</div>
+                        )}
+                      </div>
+                      <div className="mt-1.5 min-h-[1.5rem]">
+                        {isCapReached ? (
+                          <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                            Cap reached
+                          </span>
+                        ) : (
+                          <span className="invisible inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider">
+                            Cap reached
+                          </span>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <div className="mt-2.5 min-h-[5.5rem] rounded-xl border border-[#D8C4AC]/35 bg-white/55 p-2 flex flex-col justify-between">
+                          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#4D0E13]/45">
+                            Edit max stock
+                          </p>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={capDrafts[item.id] ?? item.monthlyRestockCap.toFixed(2)}
+                              onChange={(e) =>
+                                setCapDrafts((prev) => ({
+                                  ...prev,
+                                  [item.id]: e.target.value,
+                                }))
+                              }
+                              className="w-32 bg-white/80 border border-[#D8C4AC]/50 rounded-lg px-2 py-1.25 text-xs text-[#4D0E13] focus:outline-none focus:ring-2 focus:ring-[#C8A49F]/50"
+                            />
+                            <button
+                              onClick={() => saveMonthlyCap(item)}
+                              className="h-8 px-2.5 py-1.5 rounded-lg bg-[#4D0E13] text-white text-[11px] font-bold uppercase tracking-wide hover:bg-[#3a0a0e]"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
                       )}
-                      <h4 className="font-serif text-xl text-[#4D0E13]">{item.name}</h4>
+                      <p className="mt-0.5 text-xs text-[#4D0E13]/50 font-medium">
+                        Forecast: {forecastDays == null ? 'Insufficient usage data' : `${forecastDays} day(s) remaining`}
+                      </p>
                     </div>
-                  </div>
-
-                  <div className="mb-6 relative z-10">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className={`text-3xl sm:text-4xl font-serif ${tone.text}`}>
-                        {formatStock(item.stock)}
-                      </span>
-                      <span className="text-sm font-medium text-[#4D0E13]/60">{item.unit}</span>
-                    </div>
-
-                    <div className="w-full h-1.5 bg-[#D8C4AC]/30 rounded-full mt-4 overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress}%` }}
-                        transition={{ duration: 1, ease: 'easeOut' }}
-                        className={`h-full rounded-full ${tone.bar}`}
-                      />
-                    </div>
-                    <p className="text-xs text-[#4D0E13]/50 mt-2 font-medium">Reorder at {item.reorderLevel} {item.unit}</p>
-                    <p className="text-xs text-[#4D0E13]/50 mt-1 font-medium">
-                      Forecast: {forecastDays == null ? 'Insufficient usage data' : `${forecastDays} day(s) remaining`}
-                    </p>
-                  </div>
 
                   {isAdmin && (
-                    <div className="flex flex-col gap-2 pt-4 border-t border-[#D8C4AC]/30 relative z-10">
+                    <div className="mt-auto flex flex-col gap-2 pt-3.5 border-t border-[#D8C4AC]/30 relative z-10">
                       <div className="flex gap-2">
                         <button
                           onClick={() => openStockModal(item)}
@@ -376,6 +708,7 @@ export function InventoryView() {
                       </div>
                     </div>
                   )}
+                  </div>
                 </motion.div>
               );
             })}
@@ -390,6 +723,7 @@ export function InventoryView() {
                 <th className="text-left px-4 py-3">Category</th>
                 <th className="text-left px-4 py-3">Stock</th>
                 <th className="text-left px-4 py-3">Reorder</th>
+                <th className="text-left px-4 py-3">Monthly Cap</th>
                 <th className="text-left px-4 py-3">Status</th>
                 <th className="text-left px-4 py-3">Forecast</th>
                 {isAdmin && <th className="text-left px-4 py-3">Actions</th>}
@@ -397,6 +731,7 @@ export function InventoryView() {
             </thead>
             <tbody>
               {filteredInventory.map((item) => {
+                const isCapReached = item.status === 'high';
                 const tone = getStatusTone(item.status);
                 const forecastDays = computeForecastDays(item.id, item.stock);
                 return (
@@ -408,9 +743,47 @@ export function InventoryView() {
                     <td className="px-4 py-3">{item.category}</td>
                     <td className="px-4 py-3 font-semibold">{formatStock(item.stock)} {item.unit}</td>
                     <td className="px-4 py-3 text-[#4D0E13]/70">{item.reorderLevel} {item.unit}</td>
+                    <td className="px-4 py-3 text-[#4D0E13]/70">
+                      <div className="flex flex-col gap-2">
+                        <div>{formatMonthlyCap(item.monthlyRestockCap, item.unit)}</div>
+                        {isCapReached && (
+                          <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                            Cap reached
+                          </span>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <div className="mt-3 rounded-lg border border-[#D8C4AC]/35 bg-white/55 p-2">
+                          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#4D0E13]/45">
+                            Edit max stock
+                          </p>
+                          <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={capDrafts[item.id] ?? item.monthlyRestockCap.toFixed(2)}
+                            onChange={(e) =>
+                              setCapDrafts((prev) => ({
+                                ...prev,
+                                [item.id]: e.target.value,
+                              }))
+                            }
+                            className="w-28 bg-white/80 border border-[#D8C4AC]/50 rounded-lg px-2 py-1 text-xs text-[#4D0E13] focus:outline-none focus:ring-2 focus:ring-[#C8A49F]/50"
+                          />
+                          <button
+                            onClick={() => saveMonthlyCap(item)}
+                            className="px-2 py-1 rounded-lg bg-[#4D0E13] text-white text-[10px] font-bold uppercase tracking-wide hover:bg-[#3a0a0e]"
+                          >
+                            Save
+                          </button>
+                          </div>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-bold px-2 py-1 rounded-full ${tone.badge}`}>
-                        {item.status === 'high' ? 'full' : item.status}
+                        {getStatusLabel(item.status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-[#4D0E13]/70">
@@ -560,6 +933,23 @@ export function InventoryView() {
                   />
                   <p className="text-xs text-[#4D0E13]/40 mt-1.5">Alert when stock falls below this level</p>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#4D0E13]/50 mb-2">
+                    Max Restock Per Month
+                  </label>
+                  <input
+                    type="number"
+                    value={newItem.monthlyRestockCap}
+                    onChange={(e) => setNewItem({ ...newItem, monthlyRestockCap: e.target.value })}
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 250"
+                    required
+                    className="w-full bg-white/50 border border-[#D8C4AC]/50 rounded-xl px-4 py-3 text-[#4D0E13] placeholder:text-[#4D0E13]/30 focus:outline-none focus:ring-2 focus:ring-[#C8A49F]/50 transition-all"
+                  />
+                  <p className="text-xs text-[#4D0E13]/40 mt-1.5">Required. Blocks restocks that exceed this month's maximum quantity.</p>
+                </div>
               </div>
 
               <div className="flex gap-3 mt-8">
@@ -581,22 +971,30 @@ export function InventoryView() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {stockModal.open && stockModal.item && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+      <ConfirmDialog
+        open={Boolean(pendingDeleteItem)}
+        title={pendingDeleteItem ? `Delete ${pendingDeleteItem.name}?` : 'Delete inventory item?'}
+        message="This action cannot be undone and will remove this inventory item from the system."
+        onCancel={() => setPendingDeleteItem(null)}
+        onConfirm={() => {
+          if (!pendingDeleteItem) return;
+          deleteInventoryItem(pendingDeleteItem.id);
+          toast.success('Item removed');
+          setPendingDeleteItem(null);
+        }}
+      />
+
+      {stockModal.open && stockModal.item && typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-[260]">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
               onClick={closeStockModal}
             />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] sm:w-full max-w-md max-h-[90vh] overflow-y-auto bg-white/85 backdrop-blur-2xl border border-white/70 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl z-50 p-5 sm:p-8"
+            <div
+              className="absolute top-1/2 left-1/2 z-[261] w-[calc(100%-1.5rem)] sm:w-full max-w-md max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto bg-white/95 backdrop-blur-2xl border border-white/85 rounded-[1.5rem] sm:rounded-[2rem] shadow-2xl p-5 sm:p-8"
+              role="dialog"
+              aria-modal="true"
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-2xl font-serif text-[#4D0E13]">Update Stock</h3>
@@ -611,7 +1009,7 @@ export function InventoryView() {
               <p className="text-sm text-[#4D0E13]/60 mb-4">Item: <span className="font-semibold text-[#4D0E13]">{stockModal.item.name}</span></p>
 
               <div className="flex gap-2 mb-4">
-                {(['receive', 'correction', 'waste'] as StockAction[]).map((action) => (
+                {(['stock_in', 'correction', 'waste'] as StockAction[]).map((action) => (
                   <button
                     key={action}
                     onClick={() => setStockModal((prev) => ({ ...prev, action }))}
@@ -621,7 +1019,7 @@ export function InventoryView() {
                         : 'bg-white/65 text-[#4D0E13]/65 border border-[#D8C4AC]/45 hover:text-[#4D0E13]'
                     }`}
                   >
-                    {action}
+                    {action === 'stock_in' ? 'Stock In' : action}
                   </button>
                 ))}
               </div>
@@ -667,6 +1065,14 @@ export function InventoryView() {
               <div className="bg-[#F7F1E9] border border-[#D8C4AC]/45 rounded-xl p-3 mb-3 text-xs">
                 <p className="text-[#4D0E13]/70">Current: <span className="font-bold text-[#4D0E13]">{stockModal.item.stock.toFixed(2)} {stockModal.item.unit}</span></p>
                 <p className="text-[#4D0E13]/70">Projected: <span className="font-bold text-[#4D0E13]">{(projectedStock ?? stockModal.item.stock).toFixed(2)} {stockModal.item.unit}</span></p>
+                <p className="text-[#4D0E13]/70">
+                  Added this month:{' '}
+                  <span className="font-bold text-[#4D0E13]">{getMonthlyRestockTotal(stockModal.item.id).toFixed(2)} {stockModal.item.unit}</span>
+                </p>
+                <p className="text-[#4D0E13]/70">
+                  Monthly cap:{' '}
+                  <span className="font-bold text-[#4D0E13]">{formatMonthlyCap(stockModal.item.monthlyRestockCap, stockModal.item.unit)}</span>
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
@@ -706,6 +1112,18 @@ export function InventoryView() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="mb-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#4D0E13]/50 mb-2">Max Restock Per Month</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={stockModal.monthlyRestockCap}
+                  onChange={(e) => setStockModal((prev) => ({ ...prev, monthlyRestockCap: e.target.value }))}
+                  className="w-full bg-white/60 border border-[#D8C4AC]/50 rounded-xl px-4 py-3 text-[#4D0E13] focus:outline-none focus:ring-2 focus:ring-[#C8A49F]/50"
+                />
               </div>
 
               {stockModal.action === 'waste' && (
@@ -750,10 +1168,10 @@ export function InventoryView() {
                   Save Update
                 </button>
               </div>
-            </motion.div>
-          </>
+            </div>
+          </div>,
+          document.body
         )}
-      </AnimatePresence>
     </div>
   );
 }

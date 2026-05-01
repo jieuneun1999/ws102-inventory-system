@@ -5,9 +5,11 @@ import { Link } from 'react-router';
 import { useRef, useState } from 'react';
 import { DrinkCustomizationModal } from '../components/DrinkCustomizationModal';
 import type { DrinkCustomization, Product } from '../store';
+import { ExpandableDescription } from '../components/ui/ExpandableDescription';
+import { toast } from 'sonner';
 
 export function Home() {
-  const { addToCart, products } = useAppStore();
+  const { addToCart, products, getProductAvailability } = useAppStore();
   const [customizingProduct, setCustomizingProduct] = useState<(Product & { name: string }) | null>(null);
   const heroRef = useRef(null);
   const bestSellers = [products[1], products[4], products[7]].filter(Boolean);
@@ -35,7 +37,9 @@ export function Home() {
   };
 
   const handleCustomAdd = (item: Product, customization: DrinkCustomization) => {
-    addToCart(item, customization);
+    if (!addToCart(item, customization)) {
+      toast.error(`${item.name} is out of stock.`);
+    }
   };
 
   return (
@@ -130,14 +134,18 @@ export function Home() {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-          {bestSellers.map((item, index) => (
+          {bestSellers.map((item, index) => {
+            const availability = getProductAvailability(item.id);
+            const isOutOfStock = availability.isOutOfStock;
+
+            return (
             <motion.div
               key={item.id}
               initial={{ opacity: 0, y: 40 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-100px" }}
               transition={{ duration: 0.7, delay: index * 0.15 }}
-              className="group cursor-pointer flex flex-col"
+              className={`group cursor-pointer flex flex-col ${isOutOfStock ? 'opacity-75 grayscale-[0.12]' : ''}`}
             >
               <div className="relative overflow-hidden rounded-t-[2rem] rounded-b-xl aspect-[4/5] mb-6 bg-[#D8C4AC]/20">
                 <img 
@@ -145,6 +153,11 @@ export function Home() {
                   alt={item.name} 
                   className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-1000 ease-[0.25,0.1,0.25,1]" 
                 />
+                {isOutOfStock && (
+                  <div className="absolute left-4 top-4 rounded-full bg-red-600 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-md">
+                    Out of stock
+                  </div>
+                )}
                 
                 {/* Floating Add to cart overlay */}
                 <div className="absolute inset-0 bg-[#4D0E13]/0 group-hover:bg-[#4D0E13]/20 transition-colors duration-500 flex items-center justify-center">
@@ -152,9 +165,10 @@ export function Home() {
                     <button
                       onClick={(e) => {
                         e.preventDefault();
-                        addToCart(item);
+                        if (!addToCart(item)) return;
                       }}
-                      className="bg-[#EEE4DA] text-[#4D0E13] px-6 py-3 rounded-full font-medium tracking-wider uppercase text-xs shadow-xl transition-all duration-300 hover:scale-105 flex items-center gap-2"
+                      disabled={isOutOfStock}
+                      className="bg-[#EEE4DA] text-[#4D0E13] px-6 py-3 rounded-full font-medium tracking-wider uppercase text-xs shadow-xl transition-all duration-300 hover:scale-105 flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <ShoppingBag size={14} /> Add
                     </button>
@@ -164,7 +178,8 @@ export function Home() {
                           e.preventDefault();
                           setCustomizingProduct(item);
                         }}
-                        className="inline-flex items-center gap-2 rounded-full border border-[#EEE4DA]/60 bg-white/10 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#EEE4DA] backdrop-blur-sm transition-all duration-300 hover:bg-white/15"
+                        disabled={isOutOfStock}
+                        className="inline-flex items-center gap-2 rounded-full border border-[#EEE4DA]/60 bg-white/10 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#EEE4DA] backdrop-blur-sm transition-all duration-300 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         <Sparkles size={13} /> Customize
                       </button>
@@ -176,11 +191,21 @@ export function Home() {
               <div className="flex flex-col items-center text-center px-4">
                 <span className="text-[#C8A49F] text-xs font-bold uppercase tracking-[0.2em] mb-3">{item.category}</span>
                 <h3 className="text-2xl font-serif text-[#4D0E13] mb-2">{item.name}</h3>
-                <p className="text-[#4D0E13]/60 text-sm font-sans mb-4 line-clamp-2 leading-relaxed">{item.description}</p>
+                <ExpandableDescription
+                  id={item.id}
+                  text={item.description}
+                  fallback="No description."
+                  clampLines={3}
+                  wrapperClassName="mb-4 min-h-[4.75rem]"
+                  textClassName="text-sm font-sans text-[#4D0E13]/60"
+                  buttonClassName="text-[#4D0E13]/58 hover:text-[#4D0E13]"
+                  fadeClassName="bg-gradient-to-b from-transparent to-[#F5EFE6]/95"
+                />
                 <span className="text-lg font-serif text-[#4D0E13] italic">₱{item.price.toFixed(2)}</span>
               </div>
             </motion.div>
-          ))}
+          );
+          })}
         </div>
       </section>
 
@@ -226,8 +251,9 @@ export function Home() {
             </p>
             
             <button
-              onClick={() => addToCart(baristaChoice)}
-              className="self-start group relative inline-flex items-center justify-center px-8 py-4 overflow-hidden rounded-full bg-[#D8C4AC] text-[#4D0E13] font-medium tracking-widest uppercase text-xs transition-transform hover:scale-105"
+                onClick={() => addToCart(baristaChoice)}
+                disabled={getProductAvailability(baristaChoice.id).isOutOfStock}
+                className="self-start group relative inline-flex items-center justify-center px-8 py-4 overflow-hidden rounded-full bg-[#D8C4AC] text-[#4D0E13] font-medium tracking-widest uppercase text-xs transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <span className="relative flex items-center gap-3">
                 Experience for ₱{baristaChoice.price.toFixed(2)}

@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { signOutOfSupabase } from '../lib/supabaseAuth';
 
 export function Layout() {
-  const { cart, setCartOpen, isAuthenticated } = useAppStore();
+  const { cart, setCartOpen, isAuthenticated, userRole } = useAppStore();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -24,7 +24,9 @@ export function Layout() {
     { name: 'Orders', path: '/track', icon: ShoppingBag },
   ];
 
-  if (isAuthenticated) {
+  const isStaff = isAuthenticated && (userRole === 'admin' || userRole === 'barista');
+
+  if (isStaff) {
     navLinks.push({ name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard });
   }
 

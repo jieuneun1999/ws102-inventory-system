@@ -62,7 +62,11 @@ function Divider() {
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 export function SettingsView() {
-  const { currentAccountId, userRole, accounts, updateAccount, logout } = useAppStore();
+  const currentAccountId = useAppStore((state) => state.currentAccountId);
+  const userRole = useAppStore((state) => state.userRole);
+  const accounts = useAppStore((state) => state.accounts);
+  const updateAccount = useAppStore((state) => state.updateAccount);
+  const logout = useAppStore((state) => state.logout);
 
   const account =
     accounts.find(a => a.id === currentAccountId) ??

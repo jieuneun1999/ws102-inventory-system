@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store';
 import { LogIn, User, Lock, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { signInWithSupabase } from '../lib/supabaseAuth';
+import { signInWithSupabaseAndFetchRole } from '../lib/supabaseAuth';
 
 export function Auth() {
   const [email, setEmail] = useState('');
@@ -18,27 +18,31 @@ export function Auth() {
     setError('');
 
     try {
-      const session = await signInWithSupabase(email, password);
-      const role = session.user.user_metadata?.role ?? session.user.app_metadata?.role;
+      const sessionWithRole = await signInWithSupabaseAndFetchRole(email, password);
+      const role = sessionWithRole.role ?? 'cashier';
 
-      if (role !== 'admin' && role !== 'barista') {
-        setError('Your account is missing a role. Set user_metadata.role to admin or barista in Supabase Auth.');
-        toast.error('Missing role metadata', {
+      // Map barista role to cashier for new RBAC system
+      const mappedRole = role === 'barista' ? 'cashier' : role;
+
+      if (!['admin', 'cashier', 'kitchen', 'supplier'].includes(mappedRole)) {
+        setError('Your role is not recognized. Please contact an administrator.');
+        toast.error('Invalid role', {
           style: { background: '#DC2626', color: '#FFF', border: 'none' },
         });
         return;
       }
 
-      hydrateAuthSession({ role, accountId: session.user.id });
-      toast.success(`Welcome back, ${role === 'admin' ? 'Admin' : 'Barista'}!`, {
+      hydrateAuthSession({ role: mappedRole, accountId: sessionWithRole.user.id });
+      toast.success(`Welcome back, ${mappedRole === 'admin' ? 'Admin' : mappedRole.charAt(0).toUpperCase() + mappedRole.slice(1)}!`, {
         style: { background: '#4D0E13', color: '#EEE4DA', border: 'none' },
       });
       navigate('/dashboard');
-    } catch {
+    } catch (err) {
       setError('Invalid email or password. Please try again.');
       toast.error('Invalid credentials', {
         style: { background: '#DC2626', color: '#FFF', border: 'none' },
       });
+      console.error('Sign in error:', err);
     }
   };
 

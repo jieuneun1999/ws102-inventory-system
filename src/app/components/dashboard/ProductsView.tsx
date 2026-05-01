@@ -1,13 +1,27 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Trash2 } from 'lucide-react';
+import { Plus, X, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, type Product, type Unit } from '../../store';
+import { ConfirmDialog } from './ConfirmDialog';
+import { ImageWithFallback } from '../figma/ImageWithFallback';
+import { fetchSupabaseProductById, uploadSupabaseProductImage } from '../../lib/supabaseSync';
+import { ExpandableDescription } from '../ui/ExpandableDescription';
 
 type DraftRecipeLine = {
   inventoryItemId: string;
   amount: number;
   unit: Unit;
+};
+
+const UNIT_GROUP: Record<Unit, 'mass' | 'volume' | 'count'> = {
+  g: 'mass',
+  kg: 'mass',
+  ml: 'volume',
+  L: 'volume',
+  pcs: 'count',
+  units: 'count',
+  bottles: 'count',
 };
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=500&q=80';
@@ -20,28 +34,46 @@ const buildProductId = (name: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '') || 'product'}-${Math.random().toString(36).slice(2, 6)}`;
 
+const normalizeImageUrl = (rawValue: string) => {
+  const value = String(rawValue ?? '').trim();
+  if (!value) return DEFAULT_IMAGE;
+  if (value.startsWith('file://')) return null;
+  if (/^[a-zA-Z]:\\/.test(value)) return null;
+  if (value.startsWith('www.')) return `https://${value}`;
+  return value;
+};
+
 export function ProductsView() {
   const products = useAppStore((state) => state.products);
   const inventory = useAppStore((state) => state.inventory);
   const productRecipes = useAppStore((state) => state.productRecipes);
+  const getProductAvailability = useAppStore((state) => state.getProductAvailability);
   const upsertProductWithRecipe = useAppStore((state) => state.upsertProductWithRecipe);
   const deleteProductWithRecipe = useAppStore((state) => state.deleteProductWithRecipe);
+  const setProductOutOfStock = useAppStore((state) => state.setProductOutOfStock);
   const userRole = useAppStore((state) => state.userRole);
   const isAdmin = userRole === 'admin';
 
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+  const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [showEditor, setShowEditor] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [draft, setDraft] = useState<Product>({
     id: '',
     name: '',
     category: 'Beverage',
     price: 0,
     image: DEFAULT_IMAGE,
+    barcode: '',
     description: '',
     ingredients: [],
+    isManuallyOutOfStock: false,
+    outOfStockNote: '',
   });
   const [draftRecipe, setDraftRecipe] = useState<DraftRecipeLine[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<Product | null>(null);
 
   const getProductTitle = (item: any) => {
     const fromName = String(item?.name ?? '').trim();
@@ -55,6 +87,68 @@ export function ProductsView() {
     [inventory]
   );
 
+  const filteredProducts = useMemo(() => {
+    const query = deferredSearchQuery.trim().toLowerCase();
+    if (!query) return products;
+
+    return products.filter((item) => {
+      const recipeNames = (productRecipes[item.id] ?? []).map((entry) => entry.inventoryName.toLowerCase());
+      const fields = [
+        item.id,
+        item.name,
+        item.category,
+        item.barcode ?? '',
+        item.description ?? '',
+        ...(item.ingredients ?? []),
+        ...recipeNames,
+      ]
+        .map((field) => String(field).toLowerCase());
+
+      return fields.some((value) => value.includes(query));
+    });
+  }, [products, productRecipes, deferredSearchQuery]);
+
+  const recipeValidation = useMemo(() => {
+    const blockingErrors: string[] = [];
+    const warnings: string[] = [];
+    const seen = new Set<string>();
+
+    draftRecipe.forEach((line, index) => {
+      const row = index + 1;
+      const inventoryItem = inventoryById.get(line.inventoryItemId);
+      if (!inventoryItem) {
+        blockingErrors.push(`Row ${row}: ingredient is not linked to a valid inventory item.`);
+        return;
+      }
+
+      if (seen.has(line.inventoryItemId)) {
+        blockingErrors.push(`Row ${row}: duplicate ingredient mapping for ${inventoryItem.name}.`);
+      } else {
+        seen.add(line.inventoryItemId);
+      }
+
+      if (Number(line.amount) <= 0) {
+        blockingErrors.push(`Row ${row}: amount must be greater than zero for ${inventoryItem.name}.`);
+      }
+
+      if (UNIT_GROUP[line.unit] !== UNIT_GROUP[inventoryItem.unit]) {
+        blockingErrors.push(
+          `Row ${row}: unit ${line.unit} is incompatible with ${inventoryItem.name} stock unit ${inventoryItem.unit}.`
+        );
+      }
+    });
+
+    if (draftRecipe.length === 0) {
+      blockingErrors.push('Map at least one ingredient before saving.');
+    }
+
+    if (draftRecipe.length > 8) {
+      warnings.push('Large recipes are supported, but double-check each amount and unit before saving.');
+    }
+
+    return { blockingErrors, warnings };
+  }, [draftRecipe, inventoryById]);
+
   const openCreate = () => {
     setEditingProductId(null);
     setDraft({
@@ -63,8 +157,11 @@ export function ProductsView() {
       category: 'Beverage',
       price: 0,
       image: DEFAULT_IMAGE,
+      barcode: '',
       description: '',
       ingredients: [],
+      isManuallyOutOfStock: false,
+      outOfStockNote: '',
     });
     setDraftRecipe([]);
     setShowEditor(true);
@@ -72,7 +169,11 @@ export function ProductsView() {
 
   const openEdit = (product: Product) => {
     setEditingProductId(product.id);
-    setDraft({ ...product });
+    setDraft({
+      ...product,
+      isManuallyOutOfStock: Boolean(product.isManuallyOutOfStock),
+      outOfStockNote: product.outOfStockNote ?? '',
+    });
     setDraftRecipe(
       (productRecipes[product.id] ?? [])
         .filter((entry) => Boolean(entry.inventoryItemId))
@@ -87,11 +188,39 @@ export function ProductsView() {
 
   const addRecipeLine = () => {
     const fallbackInventory = inventory[0];
-    if (!fallbackInventory) return;
+    if (!fallbackInventory) {
+      toast.error('No inventory items found. Add inventory first.');
+      return;
+    }
     setDraftRecipe((prev) => [
       ...prev,
       { inventoryItemId: fallbackInventory.id, amount: 1, unit: fallbackInventory.unit },
     ]);
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file.');
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      setIsUploadingImage(true);
+      const productHint = editingProductId ?? draft.name ?? 'product';
+      const uploadedUrl = await uploadSupabaseProductImage(file, productHint);
+      setDraft((prev) => ({ ...prev, image: uploadedUrl }));
+      toast.success('Image uploaded to Supabase Storage.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload image.';
+      toast.error(message);
+    } finally {
+      setIsUploadingImage(false);
+      event.target.value = '';
+    }
   };
 
   const saveDraft = () => {
@@ -107,8 +236,8 @@ export function ProductsView() {
       toast.error('Price must be greater than zero.');
       return;
     }
-    if (draftRecipe.length === 0) {
-      toast.error('Please map at least one ingredient.');
+    if (recipeValidation.blockingErrors.length > 0) {
+      toast.error(recipeValidation.blockingErrors[0]);
       return;
     }
 
@@ -121,14 +250,23 @@ export function ProductsView() {
     }
 
     const productId = editingProductId ?? buildProductId(draft.name);
+    const normalizedImageUrl = normalizeImageUrl(draft.image ?? '');
+    if (normalizedImageUrl === null) {
+      toast.error('Local file paths are not supported in browser. Use https://... or /images/... from your project public folder.');
+      return;
+    }
+
     const nextProduct: Product = {
       ...draft,
       id: productId,
       name: draft.name.trim(),
       category: draft.category.trim(),
-      image: draft.image?.trim() || DEFAULT_IMAGE,
+      image: normalizedImageUrl,
+      barcode: (draft.barcode ?? '').trim(),
       description: draft.description?.trim() || '',
       price: Number(draft.price),
+      isManuallyOutOfStock: Boolean(draft.isManuallyOutOfStock),
+      outOfStockNote: draft.outOfStockNote?.trim() || '',
     };
 
     upsertProductWithRecipe({
@@ -136,16 +274,33 @@ export function ProductsView() {
       recipe: filteredRecipe,
     });
 
+    void (async () => {
+      try {
+        // Allow async upsert/sync to settle before validating remote state.
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const remote = await fetchSupabaseProductById(nextProduct.id);
+        if (!remote) return;
+
+        const expectedImage = String(nextProduct.image ?? '').trim();
+        const expectedDescription = String(nextProduct.description ?? '').trim();
+        const remoteImage = String(remote.image ?? '').trim();
+        const remoteDescription = String(remote.description ?? '').trim();
+
+        if (remoteImage !== expectedImage || remoteDescription !== expectedDescription) {
+          toast.warning('Saved locally, but Supabase returned different image/description. Please save again and check your SQL seed script.');
+        }
+      } catch {
+        // Silent fallback: avoid blocking UX if verification endpoint is unavailable.
+      }
+    })();
+
     toast.success(editingProductId ? 'Product updated.' : 'Product created.');
     setShowEditor(false);
   };
 
   const handleDeleteProduct = (product: Product) => {
     if (!isAdmin) return;
-    const shouldDelete = window.confirm(`Delete product "${product.name}" and its mapped ingredients? This cannot be undone.`);
-    if (!shouldDelete) return;
-    deleteProductWithRecipe(product.id);
-    toast.success('Product removed.');
+    setPendingDelete(product);
   };
 
   return (
@@ -183,27 +338,78 @@ export function ProductsView() {
         </div>
       </div>
 
+      <div className="mb-4 flex items-center gap-2 bg-white/50 border border-[#D8C4AC]/30 rounded-xl px-3.5 py-2.5 backdrop-blur-md">
+        <Search size={16} className="text-[#4D0E13]/60" />
+        <input
+          type="text"
+          placeholder="Search by name, barcode, category, or ingredient..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="flex-1 bg-transparent text-sm text-[#4D0E13] placeholder-[#4D0E13]/40 outline-none"
+        />
+        <span className="text-[11px] font-bold text-[#4D0E13]/50 whitespace-nowrap">
+          {filteredProducts.length} item(s)
+        </span>
+      </div>
+
       {viewMode === 'cards' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 pb-8">
-          {products.map((item, idx) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-6 pb-8">
+          {filteredProducts.map((item, idx) => (
+            (() => {
+              const availability = getProductAvailability(item.id);
+              const isOutOfStock = availability.isOutOfStock;
+              const isManual = Boolean(item.isManuallyOutOfStock);
+
+              return (
             <motion.div
               key={item.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(idx * 0.02, 0.2) }}
-              className="bg-white/65 backdrop-blur-xl border border-white/70 rounded-[1.5rem] p-5 shadow-[0_4px_24px_rgba(77,14,19,0.03)]"
+              transition={{ delay: Math.min(idx * 0.01, 0.08), duration: 0.16, ease: 'easeOut' }}
+              className={`bg-white/65 backdrop-blur-xl border rounded-[1.5rem] p-6 shadow-[0_4px_24px_rgba(77,14,19,0.03)] flex min-h-[31rem] flex-col justify-between ${
+                isOutOfStock ? 'border-red-200 bg-red-50/70' : 'border-white/70'
+              }`}
             >
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <h3 className="font-serif text-xl text-[#4D0E13] leading-tight">{getProductTitle(item)}</h3>
-                <span className="text-xs font-bold px-2 py-1 rounded-full bg-[#D8C4AC]/25 text-[#4D0E13]/70 whitespace-nowrap">
-                  {item.category}
-                </span>
-              </div>
+              <div className="flex flex-col gap-4 flex-1 min-h-0">
+                <div className="flex items-start justify-between gap-4 min-h-[4.75rem]">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-serif text-[1.35rem] leading-tight text-[#4D0E13] min-h-[2.8rem] line-clamp-2">
+                      {getProductTitle(item)}
+                    </h3>
+                    {isOutOfStock && (
+                      <p className="mt-1 text-[11px] font-semibold text-red-700">
+                        {isManual ? 'Manually flagged out of stock' : 'Out of stock from inventory'}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#D8C4AC]/25 text-[#4D0E13]/70 whitespace-nowrap">
+                      {item.category}
+                    </span>
+                    {isOutOfStock && (
+                      <span className="text-[10px] font-bold uppercase tracking-[0.12em] px-2.5 py-1 rounded-full bg-red-600 text-white whitespace-nowrap">
+                        Out of stock
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-              <p className="text-sm text-[#4D0E13]/60 mb-3 min-h-[40px]">{item.description || 'No description.'}</p>
+                <div className="min-h-[4.8rem]">
+                  <ExpandableDescription
+                    id={item.id}
+                    text={item.description}
+                    fallback="No description."
+                    clampLines={3}
+                    wrapperClassName="mb-0"
+                    className="min-h-[4.8rem]"
+                    textClassName="text-sm text-[#4D0E13]/60"
+                    buttonClassName="text-[#4D0E13]/60 hover:text-[#4D0E13]"
+                    fadeClassName="bg-gradient-to-b from-transparent to-white/80"
+                  />
+                </div>
 
-              <div className="mb-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-[#4D0E13]/45 mb-1.5">Mapped Ingredients</p>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#4D0E13]/45 mb-1.5">Mapped Ingredients</p>
                 {item.ingredients && item.ingredients.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {item.ingredients.map((ingredient) => (
@@ -218,32 +424,52 @@ export function ProductsView() {
                 ) : (
                   <p className="text-xs text-[#4D0E13]/45">No linked ingredients listed.</p>
                 )}
-              </div>
-
-              <div className="pt-3 border-t border-[#D8C4AC]/30 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#4D0E13]/45">Product ID</span>
-                  <p className="text-xs font-semibold text-[#4D0E13]/60">{item.id}</p>
                 </div>
-                {isAdmin && (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => openEdit(item)}
-                      className="px-3 py-1.5 rounded-lg border border-[#D8C4AC]/50 bg-white/60 text-xs font-semibold text-[#4D0E13] hover:bg-white"
-                    >
-                      Edit Map
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProduct(item)}
-                      className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-semibold text-red-700 hover:bg-red-100 inline-flex items-center gap-1"
-                    >
-                      <Trash2 size={12} /> Delete
-                    </button>
+
+                <div className="mt-auto pt-4 border-t border-[#D8C4AC]/30 flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#4D0E13]/45">Product ID</span>
+                    <p className="text-xs font-semibold text-[#4D0E13]/60 break-all">{item.id}</p>
+                    <p className="text-[11px] font-semibold text-[#4D0E13]/50">Barcode: {item.barcode || 'N/A'}</p>
                   </div>
-                )}
+                  {isAdmin && (
+                    <div className="flex flex-wrap justify-end gap-2 shrink-0 max-w-[17rem]">
+                      <button
+                        onClick={() => setProductOutOfStock(item.id, !isManual, item.outOfStockNote ?? '')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap ${
+                          isManual
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            : 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                        }`}
+                      >
+                        {isManual ? 'Clear OOS' : 'Flag OOS'}
+                      </button>
+                      <button
+                        onClick={() => openEdit(item)}
+                        className="px-3 py-1.5 rounded-lg border border-[#D8C4AC]/50 bg-white/60 text-xs font-semibold text-[#4D0E13] hover:bg-white whitespace-nowrap"
+                      >
+                        Edit Map
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProduct(item)}
+                        className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-semibold text-red-700 hover:bg-red-100 inline-flex items-center gap-1 whitespace-nowrap"
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </motion.div>
+              );
+            })()
           ))}
+
+          {filteredProducts.length === 0 && (
+            <div className="col-span-full rounded-2xl border border-dashed border-[#D8C4AC]/45 bg-white/35 py-10 text-center text-sm font-medium text-[#4D0E13]/45">
+              No products matched your search.
+            </div>
+          )}
         </div>
       ) : (
         <div className="overflow-auto rounded-2xl border border-[#D8C4AC]/35 bg-white/60 backdrop-blur-xl">
@@ -254,17 +480,19 @@ export function ProductsView() {
                 <th className="text-left px-4 py-3">Name</th>
                 <th className="text-left px-4 py-3">Category</th>
                 <th className="text-left px-4 py-3">Price</th>
+                <th className="text-left px-4 py-3">Barcode</th>
                 <th className="text-left px-4 py-3">Ingredients</th>
                 {isAdmin && <th className="text-left px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {products.map((item) => (
+              {filteredProducts.map((item) => (
                 <tr key={item.id} className="border-t border-[#D8C4AC]/25 text-[#4D0E13]">
                   <td className="px-4 py-3 font-semibold text-xs">{item.id}</td>
                   <td className="px-4 py-3 font-semibold">{getProductTitle(item)}</td>
                   <td className="px-4 py-3">{item.category}</td>
-                  <td className="px-4 py-3">₱ {Number(item.price).toFixed(2)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap tabular-nums font-semibold">₱{Number(item.price).toFixed(2)}</td>
+                  <td className="px-4 py-3 font-semibold text-xs">{item.barcode || 'N/A'}</td>
                   <td className="px-4 py-3 text-[#4D0E13]/70">
                     {item.ingredients && item.ingredients.length > 0 ? item.ingredients.join(', ') : 'No linked ingredients'}
                   </td>
@@ -288,6 +516,14 @@ export function ProductsView() {
                   )}
                 </tr>
               ))}
+
+              {filteredProducts.length === 0 && (
+                <tr>
+                  <td colSpan={isAdmin ? 7 : 6} className="px-4 py-8 text-center text-sm font-medium text-[#4D0E13]/45">
+                    No products matched your search.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -295,12 +531,13 @@ export function ProductsView() {
 
       {viewMode === 'list' && (
         <div className="md:hidden mt-4 space-y-3">
-          {products.map((item) => (
+          {filteredProducts.map((item) => (
             <div key={`mobile-${item.id}`} className="bg-white/65 backdrop-blur-xl border border-white/70 rounded-2xl p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="font-serif text-lg text-[#4D0E13] leading-tight">{getProductTitle(item)}</h3>
-                  <p className="text-xs text-[#4D0E13]/60 mt-1">{item.category} • ₱ {Number(item.price).toFixed(2)}</p>
+                  <p className="text-xs text-[#4D0E13]/60 mt-1 whitespace-nowrap">{item.category} • ₱{Number(item.price).toFixed(2)}</p>
+                  <p className="text-[11px] text-[#4D0E13]/55">Barcode: {item.barcode || 'N/A'}</p>
                 </div>
                 <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-[#D8C4AC]/25 text-[#4D0E13]/70">
                   {item.id}
@@ -327,6 +564,12 @@ export function ProductsView() {
               )}
             </div>
           ))}
+
+          {filteredProducts.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-[#D8C4AC]/45 bg-white/35 py-8 text-center text-sm font-medium text-[#4D0E13]/45">
+              No products matched your search.
+            </div>
+          )}
         </div>
       )}
 
@@ -386,9 +629,49 @@ export function ProductsView() {
                   <input
                     value={draft.image}
                     onChange={(e) => setDraft((prev) => ({ ...prev, image: e.target.value }))}
+                    placeholder="https://.../image.webp"
+                    className="w-full bg-white/60 border border-[#D8C4AC]/50 rounded-xl px-4 py-3 text-[#4D0E13]"
+                  />
+                  <label className={`mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+                    isUploadingImage
+                      ? 'border-[#D8C4AC]/45 bg-[#F5EFE6] text-[#4D0E13]/60 cursor-not-allowed'
+                      : 'border-[#D8C4AC]/55 bg-white/70 text-[#4D0E13] hover:bg-white'
+                  }`}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageUpload}
+                      disabled={isUploadingImage}
+                    />
+                    {isUploadingImage ? 'Uploading...' : 'Upload to Supabase'}
+                  </label>
+                  <div className="mt-2 h-20 w-20 rounded-xl border border-[#D8C4AC]/45 bg-white/50 overflow-hidden">
+                    <ImageWithFallback
+                      src={(draft.image || DEFAULT_IMAGE).trim()}
+                      alt={draft.name || 'Product preview'}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#4D0E13]/50 mb-2">Barcode</label>
+                  <input
+                    value={draft.barcode ?? ''}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, barcode: e.target.value }))}
+                    placeholder="e.g. 291234567890"
                     className="w-full bg-white/60 border border-[#D8C4AC]/50 rounded-xl px-4 py-3 text-[#4D0E13]"
                   />
                 </div>
+                <label className="md:col-span-2 flex items-center gap-3 rounded-xl border border-[#D8C4AC]/45 bg-white/60 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(draft.isManuallyOutOfStock)}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, isManuallyOutOfStock: e.target.checked }))}
+                    className="h-4 w-4 rounded border-[#C8A49F] text-[#4D0E13]"
+                  />
+                  <span className="text-sm font-semibold text-[#4D0E13]">Manually flag this product as out of stock</span>
+                </label>
               </div>
 
               <div className="mb-5">
@@ -397,6 +680,16 @@ export function ProductsView() {
                   rows={3}
                   value={draft.description ?? ''}
                   onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))}
+                  className="w-full bg-white/60 border border-[#D8C4AC]/50 rounded-xl px-4 py-3 text-[#4D0E13]"
+                />
+              </div>
+
+              <div className="mb-5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#4D0E13]/50 mb-2">Out of Stock Note</label>
+                <input
+                  value={draft.outOfStockNote ?? ''}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, outOfStockNote: e.target.value }))}
+                  placeholder="Optional reason for the manual flag"
                   className="w-full bg-white/60 border border-[#D8C4AC]/50 rounded-xl px-4 py-3 text-[#4D0E13]"
                 />
               </div>
@@ -410,6 +703,17 @@ export function ProductsView() {
                   <Plus size={14} /> Add Ingredient
                 </button>
               </div>
+
+              {(recipeValidation.blockingErrors.length > 0 || recipeValidation.warnings.length > 0) && (
+                <div className="mb-3 rounded-xl border border-[#D8C4AC]/50 bg-[#FFF7ED]/70 px-3 py-2.5">
+                  {recipeValidation.blockingErrors.map((message) => (
+                    <p key={`err-${message}`} className="text-[11px] font-semibold text-[#9A3412]">• {message}</p>
+                  ))}
+                  {recipeValidation.warnings.map((message) => (
+                    <p key={`warn-${message}`} className="text-[11px] font-semibold text-[#4D0E13]/70">• {message}</p>
+                  ))}
+                </div>
+              )}
 
               <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                 {draftRecipe.map((line, idx) => (
@@ -492,6 +796,19 @@ export function ProductsView() {
           </>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={pendingDelete ? `Delete ${pendingDelete.name}?` : 'Delete product?'}
+        message="This will remove the product and its mapped ingredients."
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          deleteProductWithRecipe(pendingDelete.id);
+          toast.success('Product removed.');
+          setPendingDelete(null);
+        }}
+      />
     </div>
   );
 }

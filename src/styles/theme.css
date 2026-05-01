@@ -6,8 +6,8 @@
   --color-dusty-pink: #C8A49F;
   --color-burgundy: #4D0E13;
 
-  --font-serif: "Playfair Display", serif;
-  --font-sans: "Inter", sans-serif;
+  --font-serif: "Montserrat", sans-serif;
+  --font-sans: "Source Sans 3", sans-serif;
 }
 
 :root {
@@ -19,4 +19,134 @@
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
   color: var(--color-burgundy);
+}
+
+/* Smooth premium feel when switching dashboard themes */
+.dashboard-theme-scope,
+.dashboard-theme-scope .theme-fade {
+  transition-property: color, background-color, border-color, fill, stroke, box-shadow;
+  transition-duration: 320ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dashboard-pro-ui h1,
+.dashboard-pro-ui h2,
+.dashboard-pro-ui h3 {
+  font-family: "Montserrat", sans-serif;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+}
+
+.dashboard-pro-ui,
+.dashboard-pro-ui p,
+.dashboard-pro-ui span,
+.dashboard-pro-ui button,
+.dashboard-pro-ui input,
+.dashboard-pro-ui select,
+.dashboard-pro-ui textarea {
+  font-family: "Source Sans 3", sans-serif;
+}
+
+.dashboard-pro-ui .bg-white\/85,
+.dashboard-pro-ui .bg-white\/80,
+.dashboard-pro-ui .bg-white\/70,
+.dashboard-pro-ui .bg-white\/60,
+.dashboard-pro-ui .bg-white\/55,
+.dashboard-pro-ui .bg-white\/50,
+.dashboard-pro-ui .bg-white\/40,
+.dashboard-pro-ui .bg-white\/35 {
+  background-color: rgba(255, 255, 255, 0.38) !important;
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+.dashboard-pro-ui .border-white\/80,
+.dashboard-pro-ui .border-white\/70,
+.dashboard-pro-ui .border-white\/60,
+.dashboard-pro-ui .border-white\/45 {
+  border-color: rgba(255, 255, 255, 0.52) !important;
+}
+
+.dashboard-pro-ui .shadow-lg,
+.dashboard-pro-ui .shadow-md,
+.dashboard-pro-ui .shadow-sm {
+  box-shadow: 0 10px 28px rgba(77, 14, 19, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-theme-scope,
+  .dashboard-theme-scope .theme-fade {
+    transition-duration: 1ms;
+  }
+}
+
+/* Dashboard dark mode readability overrides for hardcoded utility colors */
+.dashboard-dark .text-\[\#4D0E13\],
+.dashboard-dark .text-\[\#4D0E13\]\/80,
+.dashboard-dark .text-\[\#4D0E13\]\/70,
+.dashboard-dark .text-\[\#4D0E13\]\/65,
+.dashboard-dark .text-\[\#4D0E13\]\/60,
+.dashboard-dark .text-\[\#4D0E13\]\/55,
+.dashboard-dark .text-\[\#4D0E13\]\/50,
+.dashboard-dark .text-\[\#4D0E13\]\/45,
+.dashboard-dark .text-\[\#4D0E13\]\/40,
+.dashboard-dark .text-\[\#4D0E13\]\/30 {
+  color: #f2ede6 !important;
+}
+
+.dashboard-dark .text-\[\#C8A49F\],
+.dashboard-dark .text-\[\#C8A49F\]\/70,
+.dashboard-dark .text-\[\#C8A49F\]\/60,
+.dashboard-dark .text-\[\#C8A49F\]\/50 {
+  color: #d9c6b3 !important;
+}
+
+.dashboard-dark .placeholder\:text-\[\#4D0E13\]\/40::placeholder {
+  color: rgba(233, 224, 214, 0.6) !important;
+}
+
+.dashboard-dark .bg-white\/85,
+.dashboard-dark .bg-white\/80,
+.dashboard-dark .bg-white\/70,
+.dashboard-dark .bg-white\/60,
+.dashboard-dark .bg-white\/55,
+.dashboard-dark .bg-white\/50,
+.dashboard-dark .bg-white\/40,
+.dashboard-dark .bg-white\/35 {
+  background-color: rgba(39, 28, 35, 0.78) !important;
+}
+
+.dashboard-dark .border-white\/80,
+.dashboard-dark .border-white\/70,
+.dashboard-dark .border-white\/60,
+.dashboard-dark .border-white\/45 {
+  border-color: rgba(146, 118, 131, 0.42) !important;
+}
+
+.dashboard-dark .border-\[\#D8C4AC\]\/40,
+.dashboard-dark .border-\[\#D8C4AC\]\/35,
+.dashboard-dark .border-\[\#D8C4AC\]\/30,
+.dashboard-dark .border-\[\#D8C4AC\]\/25,
+.dashboard-dark .border-\[\#D8C4AC\]\/20 {
+  border-color: rgba(146, 118, 131, 0.4) !important;
+}
+
+.dashboard-dark .bg-\[\#EADDD1\],
+.dashboard-dark .bg-\[\#F5EFE6\],
+.dashboard-dark .bg-\[\#FFF7ED\]\/70 {
+  background-color: rgba(58, 41, 50, 0.88) !important;
+}
+
+.dashboard-dark .bg-\[\#FDF3F3\]\/80,
+.dashboard-dark .bg-\[\#FDF3F3\],
+.dashboard-dark .bg-\[\#FFF0F0\] {
+  background-color: rgba(66, 34, 42, 0.88) !important;
+}
+
+.dashboard-dark .text-\[\#9A3412\],
+.dashboard-dark .text-\[\#7C2D12\] {
+  color: #ffd7c2 !important;
+}
+
+.dashboard-dark .border-\[\#FCD9B6\] {
+  border-color: rgba(255, 180, 144, 0.45) !important;
 }

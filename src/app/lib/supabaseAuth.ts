@@ -2,11 +2,11 @@ type SupabaseAuthUser = {
   id: string;
   email: string;
   user_metadata?: {
-    role?: 'admin' | 'barista';
+    role?: 'admin' | 'barista' | 'cashier' | 'kitchen' | 'supplier';
     name?: string;
   };
   app_metadata?: {
-    role?: 'admin' | 'barista';
+    role?: 'admin' | 'barista' | 'cashier' | 'kitchen' | 'supplier';
   };
 };
 
@@ -50,6 +50,27 @@ const authFetch = async <T>(path: string, init: RequestInit = {}): Promise<T> =>
   return (await response.json()) as T;
 };
 
+const decodeJwtPayload = (token: string) => {
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4 || 4)) % 4);
+    const json = atob(padded);
+    return JSON.parse(json) as { exp?: number };
+  } catch {
+    return null;
+  }
+};
+
+export const isSupabaseSessionExpired = (session = getStoredSession(), graceSeconds = 120) => {
+  if (!session?.access_token) return true;
+  const payload = decodeJwtPayload(session.access_token);
+  if (!payload?.exp) return true;
+  return payload.exp * 1000 <= Date.now() + graceSeconds * 1000;
+};
+
 export const getStoredSession = (): SupabaseSession | null => {
   const raw = localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
@@ -91,6 +112,19 @@ export const refreshSupabaseUser = async () => {
   return nextSession;
 };
 
+export const refreshSupabaseSession = async () => {
+  const session = getStoredSession();
+  if (!session?.refresh_token || !isConfigured) return null;
+
+  const nextSession = await authFetch<SupabaseSession>('/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    body: JSON.stringify({ refresh_token: session.refresh_token }),
+  });
+
+  localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
+  return nextSession;
+};
+
 export const signOutOfSupabase = async () => {
   const session = getStoredSession();
   if (session && isConfigured) {
@@ -113,6 +147,65 @@ export const signOutOfSupabase = async () => {
 export const getStoredAuthRole = () => {
   const session = getStoredSession();
   return session?.user.user_metadata?.role ?? session?.user.app_metadata?.role ?? null;
+};
+
+// Fetch user role from profiles table (new RBAC system)
+export const fetchUserRoleFromProfiles = async (userId: string, accessToken: string): Promise<'admin' | 'cashier' | 'kitchen' | 'supplier' | null> => {
+  try {
+    if (!isConfigured) {
+      throw new Error('Supabase is not configured');
+    }
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=role`, {
+      method: 'GET',
+      headers: {
+        ...authHeaders,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      // If fetch fails, return null and let fallback handle it
+      return null;
+    }
+
+    const data = (await response.json()) as Array<{ role: string }>;
+    if (data.length > 0) {
+      return (data[0].role as any) ?? 'cashier';
+    }
+
+    // Profile doesn't exist, create default cashier profile
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ id: userId, role: 'cashier' }),
+      });
+    } catch {
+      // Silently fail if profile creation fails
+    }
+
+    return 'cashier';
+  } catch (err) {
+    console.warn('Failed to fetch user role from profiles:', err);
+    return null;
+  }
+};
+
+// Enhanced sign-in that fetches role from profiles table
+export const signInWithSupabaseAndFetchRole = async (email: string, password: string) => {
+  const session = await signInWithSupabase(email, password);
+  
+  // Try to fetch role from profiles table
+  const profileRole = await fetchUserRoleFromProfiles(session.user.id, session.access_token);
+  
+  // Fallback to metadata if profiles table fetch failed
+  const role = profileRole ?? (session.user.user_metadata?.role ?? session.user.app_metadata?.role);
+  
+  return { ...session, role };
 };
 
 export const getStoredAuthUser = () => getStoredSession()?.user ?? null;

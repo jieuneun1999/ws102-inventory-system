@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { type OrderType, useAppStore } from '../store';
-import { X, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router';
+import { type OrderType, type PaymentMethod, useAppStore } from '../store';
+import { X, Minus, Plus, ShoppingBag, Trash2, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { DrinkCustomizationModal } from './DrinkCustomizationModal';
@@ -19,22 +18,33 @@ export function Cart() {
     cartTotal,
     addToCart,
     createOrder,
+    getOrder,
     clearCart,
     products,
+    getProductAvailability,
   } = useAppStore();
-  const navigate = useNavigate();
   const [customizingItem, setCustomizingItem] = useState<CartItem | null>(null);
   const [orderType, setOrderType] = useState<OrderType>('pickup');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('ewallet');
+  const [checkoutSuccess, setCheckoutSuccess] = useState<{ orderNumber: string; orderType: OrderType } | null>(null);
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
-    const orderId = createOrder(orderType);
+    const orderId = createOrder(orderType, paymentMethod);
+    if (!orderId) {
+      toast.error('Some items are out of stock or manually unavailable.');
+      return;
+    }
+    const createdOrder = getOrder(orderId);
     clearCart();
-    toast.success('Order placed successfully! Track your order progress.', {
+    toast.success('Order placed successfully! Waiting for cashier approval.', {
       style: { background: '#F5EFE6', color: '#4D0E13', border: '1px solid rgba(77,14,19,0.1)' },
     });
     setCartOpen(false);
-    navigate(`/track/${orderId}`);
+    setCheckoutSuccess({
+      orderNumber: createdOrder?.orderNumber ?? orderId,
+      orderType,
+    });
   };
 
   const subtotal = cartTotal();
@@ -156,8 +166,13 @@ export function Cart() {
                         <p className="text-[#4D0E13]/60 font-bold text-xs font-serif">₱ {rec.price}</p>
                       </div>
                       <button 
-                        onClick={() => addToCart(rec)}
-                        className="w-7 h-7 rounded-full bg-[#4D0E13] text-[#F5EFE6] flex items-center justify-center shadow-md hover:bg-[#3a0a0e] hover:scale-105 transition-all shrink-0"
+                        onClick={() => {
+                          if (!addToCart(rec)) {
+                            toast.error(`${rec.name} is out of stock.`);
+                          }
+                        }}
+                        disabled={getProductAvailability(rec.id).isOutOfStock}
+                        className="w-7 h-7 rounded-full bg-[#4D0E13] text-[#F5EFE6] flex items-center justify-center shadow-md hover:bg-[#3a0a0e] hover:scale-105 transition-all shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         <Plus size={14} strokeWidth={3} />
                       </button>
@@ -190,6 +205,30 @@ export function Cart() {
                     }`}
                   >
                     Delivery
+                  </button>
+                </div>
+
+                <p className="mt-3 mb-2 text-[11px] font-bold uppercase tracking-wider text-[#4D0E13]/55">Payment</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setPaymentMethod('cash')}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${
+                      paymentMethod === 'cash'
+                        ? 'bg-emerald-600 text-white shadow-md'
+                        : 'bg-white text-[#4D0E13]/70 border border-[#D8C4AC]/60'
+                    }`}
+                  >
+                    Cash
+                  </button>
+                  <button
+                    onClick={() => setPaymentMethod('ewallet')}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${
+                      paymentMethod === 'ewallet'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-white text-[#4D0E13]/70 border border-[#D8C4AC]/60'
+                    }`}
+                  >
+                    Online / E-wallet
                   </button>
                 </div>
               </div>
@@ -231,6 +270,47 @@ export function Cart() {
               toast.success('Drink customization updated.');
             }}
           />
+        </>
+      )}
+
+      {checkoutSuccess && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/35 backdrop-blur-sm z-[60]"
+            onClick={() => setCheckoutSuccess(null)}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 14 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 14 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-md bg-white/95 border border-white/70 shadow-2xl rounded-[1.8rem] p-6 z-[61]"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-emerald-100 text-emerald-700">
+                <CheckCircle2 size={22} />
+              </span>
+              <div>
+                <h3 className="font-serif text-2xl text-[#4D0E13] leading-tight">Order Submitted</h3>
+                <p className="text-sm text-[#4D0E13]/65 mt-1">Order #{checkoutSuccess.orderNumber} is now waiting for cashier approval.</p>
+                <p className="text-xs text-[#4D0E13]/55 mt-2 capitalize">Fulfillment: {checkoutSuccess.orderType}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-[#D8C4AC]/40 bg-[#F5EFE6]/70 p-3">
+              <p className="text-xs font-semibold text-[#4D0E13]/80">Please wait for your order number to appear on the dedicated tracking display.</p>
+            </div>
+
+            <button
+              onClick={() => setCheckoutSuccess(null)}
+              className="mt-5 w-full px-4 py-2.5 rounded-full bg-[#4D0E13] text-[#EEE4DA] text-sm font-bold"
+            >
+              Done
+            </button>
+          </motion.div>
         </>
       )}
     </AnimatePresence>
