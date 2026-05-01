@@ -1333,7 +1333,9 @@ create policy write_inventory_adjustments on inventory_adjustments for all to au
 drop policy if exists read_system_history_events on system_history_events;
 create policy read_system_history_events on system_history_events for select to authenticated using (get_user_role() in ('admin'::app_user_role, 'kitchen'::app_user_role, 'cashier'::app_user_role));
 drop policy if exists write_system_history_events on system_history_events;
-create policy write_system_history_events on system_history_events for all to authenticated using (get_user_role() = 'admin'::app_user_role) with check (get_user_role() = 'admin'::app_user_role);
+create policy write_system_history_events on system_history_events for insert to authenticated with check (true);
+drop policy if exists update_system_history_events on system_history_events;
+create policy update_system_history_events on system_history_events for update to authenticated using (true) with check (true);
 
 -- Waste logs: admin and kitchen can read/write
 drop policy if exists read_waste_logs on waste_logs;
