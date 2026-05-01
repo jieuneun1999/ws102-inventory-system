@@ -72,7 +72,7 @@ export function CartPage() {
   }
 
   return (
-    <div className="container mx-auto px-6 py-12 md:py-20">
+    <div className="container mx-auto px-6 py-12 md:py-20 pb-36 md:pb-20">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -170,7 +170,7 @@ export function CartPage() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
-              className="bg-white/60 backdrop-blur-xl border border-white/50 rounded-[2rem] p-6 shadow-xl sticky top-28"
+              className="bg-white/60 backdrop-blur-xl border border-white/50 rounded-[2rem] p-6 shadow-xl lg:sticky lg:top-28"
             >
               <h2 className="text-2xl font-serif text-[#4D0E13] mb-6 font-medium">
                 Order Summary
@@ -295,7 +295,7 @@ export function CartPage() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 14 }}
               transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-md bg-white/95 border border-white/70 shadow-2xl rounded-[1.8rem] p-6 z-50"
+              className="fixed left-1/2 bottom-[8.75rem] -translate-x-1/2 w-[calc(100%-2rem)] max-w-md bg-white/95 border border-white/70 shadow-2xl rounded-[1.8rem] p-6 z-50 sm:bottom-10"
             >
               <div className="flex items-start gap-3">
                 <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-emerald-100 text-emerald-700">

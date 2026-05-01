@@ -69,7 +69,7 @@ export function Cart() {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ ease: 'easeOut', duration: 0.4 }}
-            className="fixed right-0 md:right-4 top-0 md:top-4 h-full md:h-[calc(100vh-32px)] w-full max-w-[400px] bg-white/70 backdrop-blur-3xl border border-white/60 md:rounded-[2.5rem] shadow-[-10px_0_40px_rgba(77,14,19,0.05)] z-50 flex flex-col font-sans"
+            className="fixed right-0 md:right-4 top-4 bottom-[8.75rem] md:bottom-4 h-[calc(100vh-11rem)] md:h-[calc(100vh-32px)] w-full max-w-[400px] bg-white/70 backdrop-blur-3xl border border-white/60 md:rounded-[2.5rem] shadow-[-10px_0_40px_rgba(77,14,19,0.05)] z-50 flex flex-col font-sans"
           >
             <div className="p-8 flex items-center justify-between">
               <div className="flex items-center gap-3 text-[#4D0E13]">
@@ -86,7 +86,7 @@ export function Cart() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-8 pb-8 hide-scrollbar flex flex-col gap-6">
+            <div className="flex-1 overflow-y-auto px-8 pb-[calc(9rem+env(safe-area-inset-bottom))] hide-scrollbar flex flex-col gap-6">
               {cart.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-[#4D0E13]/40 space-y-4">
                   <ShoppingBag size={48} className="opacity-20" strokeWidth={1} />
@@ -182,7 +182,7 @@ export function Cart() {
               </div>
             </div>
 
-            <div className="p-8 pt-0 mt-auto">
+            <div className="p-8 pt-0 mt-auto pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <div className="mb-5 rounded-2xl border border-[#D8C4AC]/50 bg-white/70 p-3 shadow-sm">
                 <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[#4D0E13]/55">Order type</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -287,7 +287,7 @@ export function Cart() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 14 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-md bg-white/95 border border-white/70 shadow-2xl rounded-[1.8rem] p-6 z-[61]"
+            className="fixed left-1/2 bottom-[8.75rem] -translate-x-1/2 w-[calc(100%-2rem)] max-w-md bg-white/95 border border-white/70 shadow-2xl rounded-[1.8rem] p-6 z-[61] sm:bottom-10"
           >
             <div className="flex items-start gap-3">
               <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-emerald-100 text-emerald-700">

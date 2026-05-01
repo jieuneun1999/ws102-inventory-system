@@ -4,7 +4,6 @@ import { Toaster } from 'sonner';
 import { useEffect, useRef } from 'react';
 import { useAppStore, type SyncTrigger } from './store';
 import { bootstrapSupabaseDemo, fetchPublicCatalog, reconcileSupabaseOrders, syncSupabaseHistoryEvents } from './lib/supabaseSync';
-import { getStoredAuthUser, refreshSupabaseUser } from './lib/supabaseAuth';
 import { subscribeDashboardRealtime, subscribePublicCatalogRealtime } from './lib/supabaseRealtime';
 import { toast } from 'sonner';
 
@@ -12,7 +11,6 @@ const STORAGE_KEY = 'aura-cafe-storage';
 
 export default function App() {
   const hydrateRemoteData = useAppStore((state) => state.hydrateRemoteData);
-  const hydrateAuthSession = useAppStore((state) => state.hydrateAuthSession);
   const historyEvents = useAppStore((state) => state.historyEvents);
   const isAuthenticated = useAppStore((state) => state.isAuthenticated);
   const userRole = useAppStore((state) => state.userRole);
@@ -51,9 +49,9 @@ export default function App() {
             localState.receipts
           ).catch(() => ({ created: 0, updated: 0 }));
 
-          if ((reconcileResult.created + reconcileResult.updated) > 0) {
+          if (reconcileResult.created > 0) {
             toast.success(
-              `Recovered ${reconcileResult.created} missing order(s) and replayed ${reconcileResult.updated} update(s) to Supabase.`,
+              `Recovered ${reconcileResult.created} missing order(s) to Supabase.`,
               { duration: 5000 }
             );
           }
@@ -105,16 +103,7 @@ export default function App() {
       }
     };
 
-    void (async () => {
-      const refreshedSession = await refreshSupabaseUser().catch(() => null);
-      const authUser = refreshedSession?.user ?? getStoredAuthUser();
-      const role = authUser?.user_metadata?.role ?? authUser?.app_metadata?.role;
-      if (authUser && (role === 'admin' || role === 'barista')) {
-        hydrateAuthSession({ role, accountId: authUser.id });
-      }
-
-      await syncSnapshot('initial');
-    })();
+    void syncSnapshot('initial');
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -170,7 +159,7 @@ export default function App() {
       window.removeEventListener('aura-cafe-sync-error', onSyncError as EventListener);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [hydrateRemoteData, hydrateAuthSession, isStaff]);
+  }, [hydrateRemoteData, isStaff]);
 
   useEffect(() => {
     if (!isStaff || historyEvents.length === 0) return;
@@ -188,7 +177,7 @@ export default function App() {
   return (
     <>
       <RouterProvider router={router} />
-      <Toaster position="top-center" />
+      <Toaster position="bottom-center" />
     </>
   );
 }

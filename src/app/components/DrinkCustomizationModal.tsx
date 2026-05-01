@@ -59,8 +59,8 @@ export function DrinkCustomizationModal({ item, product, open, onClose, onSave, 
   const unitPrice = basePrice + sizeSurcharge(draft.size) + addOnTotal;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-[#2e0f12]/28 backdrop-blur-[1.5px] px-3 pt-24 pb-4 sm:px-4 sm:pt-28 sm:pb-6">
-      <div className="flex h-auto max-h-[calc(100vh-7.5rem)] w-full max-w-[390px] flex-col overflow-hidden rounded-[1.7rem] border border-white/55 bg-gradient-to-b from-white/90 via-[#faf6f0]/90 to-[#efe2d2]/90 shadow-[0_24px_72px_rgba(31,8,10,0.28)] backdrop-blur-2xl sm:max-h-[calc(100vh-8rem)] sm:max-w-[420px]">
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-[#2e0f12]/28 backdrop-blur-[1.5px] px-3 pt-16 pb-[8.75rem] sm:px-4 sm:pt-24 sm:pb-6">
+      <div className="flex h-auto max-h-[calc(100vh-12rem)] w-full max-w-[390px] flex-col overflow-hidden rounded-[1.7rem] border border-white/55 bg-gradient-to-b from-white/90 via-[#faf6f0]/90 to-[#efe2d2]/90 shadow-[0_24px_72px_rgba(31,8,10,0.28)] backdrop-blur-2xl sm:max-h-[calc(100vh-8rem)] sm:max-w-[420px]">
         <div className="flex items-start justify-between gap-4 border-b border-[#D8C4AC]/55 px-4 pt-4 pb-3.5 sm:px-5 sm:pt-5">
           <div className="min-w-0">
             <h3 className="font-serif text-[1.35rem] leading-tight text-[#4D0E13] sm:text-[1.55rem]">Customize Drink</h3>
