@@ -50,6 +50,15 @@ const SUPABASE_PRODUCT_IMAGES_BUCKET = import.meta.env.VITE_SUPABASE_PRODUCT_IMA
 
 const isConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
+// Diagnostic logging for environment configuration
+if (typeof window !== 'undefined') {
+  window.__aura_supabase_config = {
+    isConfigured,
+    url: SUPABASE_URL ? '✓ configured' : '✗ missing VITE_SUPABASE_URL',
+    key: SUPABASE_ANON_KEY ? '✓ configured' : '✗ missing VITE_SUPABASE_ANON_KEY',
+  };
+}
+
 const roundTo2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 const deriveMonthlyRestockCap = (item: {
@@ -315,7 +324,21 @@ const retryWrite = async (label: string, operation: () => Promise<void>) => {
       }
     }
   }
-  console.error(`[supabaseSync] ${label} failed`, lastError);
+    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    console.error(`[supabaseSync] ${label} failed (attempt 3/3):`, {
+      error: errorMsg,
+      isConfigured,
+      url: SUPABASE_URL || 'NOT_SET',
+      hasAuth: Boolean(getStoredSession()?.access_token),
+    });
+  
+    // Emit sync error event for global monitoring
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('aura-cafe-sync-error', { 
+        detail: { label, error: errorMsg } 
+      }));
+    }
+  
   return false;
 };
 

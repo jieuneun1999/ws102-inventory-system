@@ -6,6 +6,7 @@ import { useAppStore, type SyncTrigger } from './store';
 import { bootstrapSupabaseDemo, fetchPublicCatalog, syncSupabaseHistoryEvents } from './lib/supabaseSync';
 import { getStoredAuthUser, refreshSupabaseUser } from './lib/supabaseAuth';
 import { subscribeDashboardRealtime, subscribePublicCatalogRealtime } from './lib/supabaseRealtime';
+import { toast } from 'sonner';
 
 const STORAGE_KEY = 'aura-cafe-storage';
 
@@ -118,6 +119,13 @@ export default function App() {
       scheduleSync('realtime', isOrderWrite ? 240 : 100, true, isOrderWrite ? 900 : 1100);
     };
 
+      const onSyncError = (event: Event) => {
+        const detail = (event as CustomEvent<{ label?: string; error?: string }>).detail ?? {};
+        const msg = detail.error || detail.label || 'Sync failed';
+        toast.error(`Database sync issue: ${msg}`, { duration: 5000 });
+        console.warn('[Sync Error]', detail);
+      };
+
     const realtimeUnsubscribe = isStaff
       ? subscribeDashboardRealtime(() => scheduleSync('realtime', 100, true, 1100))
       : subscribePublicCatalogRealtime(() => scheduleSync('realtime', 100, true, 1100));
@@ -129,6 +137,7 @@ export default function App() {
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onStorage);
     window.addEventListener('aura-cafe-sync', onAppSyncSignal as EventListener);
+      window.addEventListener('aura-cafe-sync-error', onSyncError as EventListener);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
@@ -144,6 +153,7 @@ export default function App() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('aura-cafe-sync', onAppSyncSignal as EventListener);
+        window.removeEventListener('aura-cafe-sync-error', onSyncError as EventListener);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [hydrateRemoteData, hydrateAuthSession, isStaff]);
