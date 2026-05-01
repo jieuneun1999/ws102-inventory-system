@@ -150,7 +150,7 @@ export const getStoredAuthRole = () => {
 };
 
 // Fetch user role from profiles table (new RBAC system)
-export const fetchUserRoleFromProfiles = async (userId: string, accessToken: string): Promise<'admin' | 'cashier' | 'kitchen' | 'supplier' | null> => {
+export const fetchUserRoleFromProfiles = async (userId: string, accessToken: string, metadataRole?: string): Promise<'admin' | 'cashier' | 'kitchen' | 'supplier' | null> => {
   try {
     if (!isConfigured) {
       throw new Error('Supabase is not configured');
@@ -174,7 +174,8 @@ export const fetchUserRoleFromProfiles = async (userId: string, accessToken: str
       return (data[0].role as any) ?? 'cashier';
     }
 
-    // Profile doesn't exist, create default cashier profile
+    // Profile doesn't exist, create profile with role from metadata or default to cashier
+    const roleToCreate = metadataRole ?? 'cashier';
     try {
       await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
         method: 'POST',
@@ -182,13 +183,13 @@ export const fetchUserRoleFromProfiles = async (userId: string, accessToken: str
           ...authHeaders,
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ id: userId, role: 'cashier' }),
+        body: JSON.stringify({ id: userId, role: roleToCreate }),
       });
     } catch {
       // Silently fail if profile creation fails
     }
 
-    return 'cashier';
+    return roleToCreate;
   } catch (err) {
     console.warn('Failed to fetch user role from profiles:', err);
     return null;
@@ -199,11 +200,14 @@ export const fetchUserRoleFromProfiles = async (userId: string, accessToken: str
 export const signInWithSupabaseAndFetchRole = async (email: string, password: string) => {
   const session = await signInWithSupabase(email, password);
   
-  // Try to fetch role from profiles table
-  const profileRole = await fetchUserRoleFromProfiles(session.user.id, session.access_token);
+  // Get role from metadata as fallback
+  const metadataRole = session.user.user_metadata?.role ?? session.user.app_metadata?.role;
   
-  // Fallback to metadata if profiles table fetch failed
-  const role = profileRole ?? (session.user.user_metadata?.role ?? session.user.app_metadata?.role);
+  // Try to fetch role from profiles table, passing metadata role so it can be used when creating new profile
+  const profileRole = await fetchUserRoleFromProfiles(session.user.id, session.access_token, metadataRole);
+  
+  // Use profile role if found, otherwise use metadata role or default to cashier
+  const role = profileRole ?? metadataRole ?? 'cashier';
   
   return { ...session, role };
 };

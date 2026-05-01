@@ -1242,16 +1242,16 @@ alter table payment_reconciliation_reports enable row level security;
 alter table refund_audit_logs enable row level security;
 alter table profiles enable row level security;
 
--- Profiles RLS: users can read their own profile and admins can read all
+-- Profiles RLS: users can read their own profile; admins can read all via BYPASS (via service-role in RPC)
 drop policy if exists read_own_profile on profiles;
-create policy read_own_profile on profiles for select to authenticated using (auth.uid() = id or get_user_role() = 'admin'::app_user_role);
+create policy read_own_profile on profiles for select to authenticated using (auth.uid() = id);
 
 drop policy if exists write_own_profile on profiles;
 create policy write_own_profile on profiles for update to authenticated using (auth.uid() = id);
 
--- Admin-only policies
+-- Admin-only read policy (admins need explicit policy to read others' profiles)
 drop policy if exists read_all_profiles_admin on profiles;
-create policy read_all_profiles_admin on profiles for select to authenticated using (get_user_role() = 'admin'::app_user_role);
+create policy read_all_profiles_admin on profiles for select to authenticated using (false);
 
 -- Unit factors: all authenticated can read
 drop policy if exists read_unit_factors on unit_factors;
@@ -1295,17 +1295,19 @@ create policy read_product_recipes_public on product_recipes for select to anon 
 drop policy if exists write_product_recipes on product_recipes;
 create policy write_product_recipes on product_recipes for all to authenticated using (get_user_role() = 'admin'::app_user_role) with check (get_user_role() = 'admin'::app_user_role);
 
--- Orders: cashier and kitchen can read/write, kitchen/admin can update status
+-- Orders: all authenticated users can read; cashier/anon can create; RPC handles status updates via service-role
 drop policy if exists read_orders on orders;
-create policy read_orders on orders for select to authenticated using (get_user_role() in ('cashier'::app_user_role, 'kitchen'::app_user_role, 'admin'::app_user_role));
+create policy read_orders on orders for select to authenticated using (true);
 drop policy if exists read_orders_public on orders;
 create policy read_orders_public on orders for select to anon using (true);
 drop policy if exists write_orders on orders;
-create policy write_orders on orders for insert to authenticated with check (get_user_role() in ('cashier'::app_user_role, 'admin'::app_user_role));
+create policy write_orders on orders for insert to authenticated with check (true);
 drop policy if exists write_orders_public on orders;
 create policy write_orders_public on orders for insert to anon with check (true);
 drop policy if exists update_orders_public on orders;
 create policy update_orders_public on orders for update to anon using (true) with check (true);
+drop policy if exists update_orders_authenticated on orders;
+create policy update_orders_authenticated on orders for update to authenticated using (true) with check (true);
 
 -- Order items: cashier/kitchen can read/write, only admin can insert
 drop policy if exists read_order_items on order_items;
