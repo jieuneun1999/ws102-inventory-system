@@ -1195,6 +1195,70 @@ export const syncSupabaseOrderStatus = async (orderId: string, status: OrderStat
   emitAppSyncSignal('order-status');
 };
 
+const getOrderStatusReplayPath = (status: OrderStatus) => {
+  if (status === 'ready') return ['preparing', 'ready'] as const;
+  if (status === 'completed') return ['preparing', 'ready', 'completed'] as const;
+  if (status === 'preparing') return ['preparing'] as const;
+  return [] as const;
+};
+
+export const reconcileSupabaseOrders = async (
+  orders: Order[],
+  remoteOrders: Array<{ id: string; status: OrderStatus }>,
+  receipts: Record<string, Receipt> = {}
+) => {
+  if (!isConfigured || orders.length === 0) {
+    return { created: 0, updated: 0 };
+  }
+
+  const remoteById = new Map(remoteOrders.map((order) => [String(order.id), order]));
+  let created = 0;
+  let updated = 0;
+
+  for (const order of orders) {
+    const remoteOrder = remoteById.get(order.id);
+
+    if (!remoteOrder) {
+      await syncSupabaseOrderCreate(order);
+      created += 1;
+
+      for (const nextStatus of getOrderStatusReplayPath(order.status)) {
+        await syncSupabaseOrderStatus(order.id, nextStatus);
+        updated += 1;
+      }
+
+      const receipt = receipts[order.id];
+      if (receipt) {
+        await syncSupabaseOrderReceipt(order.id, receipt);
+        updated += 1;
+      }
+
+      continue;
+    }
+
+    const replayPath = getOrderStatusReplayPath(order.status);
+    const remoteStatusIndex = replayPath.indexOf(remoteOrder.status);
+    const nextStatuses = remoteStatusIndex >= 0 ? replayPath.slice(remoteStatusIndex + 1) : replayPath;
+
+    for (const nextStatus of nextStatuses) {
+      await syncSupabaseOrderStatus(order.id, nextStatus);
+      updated += 1;
+    }
+
+    const receipt = receipts[order.id];
+    if (receipt && (order.status === 'preparing' || order.status === 'ready' || order.status === 'completed')) {
+      await syncSupabaseOrderReceipt(order.id, receipt);
+      updated += 1;
+    }
+  }
+
+  if (created > 0 || updated > 0) {
+    emitAppSyncSignal('order-reconcile');
+  }
+
+  return { created, updated };
+};
+
 export const fetchPublicOrderBoard = async (): Promise<PublicOrderBoardEntry[] | null> => {
   if (!isConfigured) return null;
 

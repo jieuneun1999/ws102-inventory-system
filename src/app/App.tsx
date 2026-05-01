@@ -3,7 +3,7 @@ import { router } from './routes';
 import { Toaster } from 'sonner';
 import { useEffect, useRef } from 'react';
 import { useAppStore, type SyncTrigger } from './store';
-import { bootstrapSupabaseDemo, fetchPublicCatalog, syncSupabaseHistoryEvents } from './lib/supabaseSync';
+import { bootstrapSupabaseDemo, fetchPublicCatalog, reconcileSupabaseOrders, syncSupabaseHistoryEvents } from './lib/supabaseSync';
 import { getStoredAuthUser, refreshSupabaseUser } from './lib/supabaseAuth';
 import { subscribeDashboardRealtime, subscribePublicCatalogRealtime } from './lib/supabaseRealtime';
 import { toast } from 'sonner';
@@ -41,8 +41,22 @@ export default function App() {
 
       try {
         if (isStaff) {
+          const localState = useAppStore.getState();
           const snapshot = await bootstrapSupabaseDemo().catch(() => null);
           if (!snapshot || !active) return;
+
+          const reconcileResult = await reconcileSupabaseOrders(
+            localState.orders,
+            snapshot.orders.map((order) => ({ id: order.id, status: order.status })),
+            localState.receipts
+          ).catch(() => ({ created: 0, updated: 0 }));
+
+          if ((reconcileResult.created + reconcileResult.updated) > 0) {
+            toast.success(
+              `Recovered ${reconcileResult.created} missing order(s) and replayed ${reconcileResult.updated} update(s) to Supabase.`,
+              { duration: 5000 }
+            );
+          }
 
           hydrateRemoteData({
             products: snapshot.products,
@@ -119,12 +133,12 @@ export default function App() {
       scheduleSync('realtime', isOrderWrite ? 240 : 100, true, isOrderWrite ? 900 : 1100);
     };
 
-      const onSyncError = (event: Event) => {
-        const detail = (event as CustomEvent<{ label?: string; error?: string }>).detail ?? {};
-        const msg = detail.error || detail.label || 'Sync failed';
-        toast.error(`Database sync issue: ${msg}`, { duration: 5000 });
-        console.warn('[Sync Error]', detail);
-      };
+    const onSyncError = (event: Event) => {
+      const detail = (event as CustomEvent<{ label?: string; error?: string }>).detail ?? {};
+      const msg = detail.error || detail.label || 'Sync failed';
+      toast.error(`Supabase sync failed: ${msg}`, { duration: 5000 });
+      console.warn('[Sync Error]', detail);
+    };
 
     const realtimeUnsubscribe = isStaff
       ? subscribeDashboardRealtime(() => scheduleSync('realtime', 100, true, 1100))
@@ -137,7 +151,7 @@ export default function App() {
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onStorage);
     window.addEventListener('aura-cafe-sync', onAppSyncSignal as EventListener);
-      window.addEventListener('aura-cafe-sync-error', onSyncError as EventListener);
+    window.addEventListener('aura-cafe-sync-error', onSyncError as EventListener);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
@@ -153,7 +167,7 @@ export default function App() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('aura-cafe-sync', onAppSyncSignal as EventListener);
-        window.removeEventListener('aura-cafe-sync-error', onSyncError as EventListener);
+      window.removeEventListener('aura-cafe-sync-error', onSyncError as EventListener);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [hydrateRemoteData, hydrateAuthSession, isStaff]);
