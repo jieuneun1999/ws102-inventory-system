@@ -700,6 +700,8 @@ for each row execute function normalize_inventory_item_row();
 create or replace function set_order_status(p_order_id text, p_status app_order_status)
 returns void
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_prev_status app_order_status;
@@ -817,6 +819,8 @@ create or replace function create_order_with_items(
 ) 
 returns text
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_order_id text := p_order_id;
