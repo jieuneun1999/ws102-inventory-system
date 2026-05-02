@@ -264,33 +264,36 @@ const processMessage = async (client, message, supplierEmails) => {
     return;
   }
 
-  const created = await createSupplierRequest({
+  const createdResult = await createSupplierRequest({
     itemName: parsed.itemName,
     quantity: parsed.quantity,
     unit: parsed.unit,
     supplierEmail: sender,
     sourceUid: String(message.uid),
   });
+  const created = createdResult.request;
 
   console.log(
     `[INGEST] UID ${message.uid} stored request -> item=${created.itemName} inventory=${created.inventoryItemId ?? 'none'} qty=${created.quantity} ${created.unit ?? ''}`.trim()
   );
 
-  // Log the event
-  await logSystemEvent({
-    domain: 'supplier_requests',
-    kind: 'request_created_via_email',
-    title: 'Supplier Request Created',
-    detail: `Email received from ${sender} requesting ${created.quantity} ${created.unit || 'units'} of ${created.itemName}`,
-    entityId: created.id,
-    metadata: {
-      supplier: sender,
-      sourceUid: String(message.uid),
-      item: created.itemName,
-      quantity: created.quantity,
-      unit: created.unit,
-    },
-  });
+  if (createdResult.created) {
+    // Log the event only for newly created rows so retries do not duplicate history.
+    await logSystemEvent({
+      domain: 'supplier_requests',
+      kind: 'request_created_via_email',
+      title: 'Supplier Request Created',
+      detail: `Email received from ${sender} requesting ${created.quantity} ${created.unit || 'units'} of ${created.itemName}`,
+      entityId: created.id,
+      metadata: {
+        supplier: sender,
+        sourceUid: String(message.uid),
+        item: created.itemName,
+        quantity: created.quantity,
+        unit: created.unit,
+      },
+    });
+  }
 
   await client.messageFlagsAdd(message.uid, ['\\Seen']);
 };
@@ -315,8 +318,7 @@ const clearExistingInboxBacklog = async (client) => {
     return;
   }
 
-  await client.messageFlagsAdd(unseenUids, ['\\Seen']);
-  console.log(`Skipped ${unseenUids.length} pre-existing unread message(s) on startup.`);
+  console.log(`Startup found ${unseenUids.length} unread message(s); leaving them unread so the poller can process valid supplier mail.`);
 };
 
 const pollInbox = async (client) => {
@@ -324,11 +326,11 @@ const pollInbox = async (client) => {
   const lock = await client.getMailboxLock('INBOX');
 
   try {
-    // Search only unseen matching restock approval subjects so unrelated or already processed mail is ignored.
+    // Search the inbox broadly, then filter locally. Gmail subject search can miss valid messages.
     console.log('[POLL] Starting inbox check...');
-    const restockUids = await client.search({ unseen: true, subject: RESTOCK_APPROVAL_SUBJECT });
+    const restockUids = await client.search({ all: true });
     const newestFirstUids = [...restockUids].reverse();
-    console.log(`[POLL] Checked inbox. Found ${restockUids.length} restock approval email(s). Active suppliers: ${supplierEmails.join(', ')}`);
+    console.log(`[POLL] Checked inbox. Scanned ${restockUids.length} message(s). Active suppliers: ${supplierEmails.join(', ')}`);
 
     if (restockUids.length > 0) {
       console.log(`[DEBUG] Fetching last 5 for inspection...`);

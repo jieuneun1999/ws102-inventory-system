@@ -111,6 +111,33 @@ export function SupplierView() {
     };
   }, [hydrateRemoteData, supplierRequests.length]);
 
+  useEffect(() => {
+    let active = true;
+
+    const syncNow = async () => {
+      const snapshot = await bootstrapSupabaseDemo().catch(() => null);
+      if (!active || !snapshot) return;
+
+      hydrateRemoteData(
+        {
+          supplierRequests: snapshot.supplierRequests,
+          supplierContacts: snapshot.supplierContacts,
+        },
+        { source: 'manual' }
+      );
+    };
+
+    void syncNow();
+    const timer = window.setInterval(() => {
+      void syncNow();
+    }, 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [hydrateRemoteData]);
+
   const adminApi = import.meta.env.VITE_ADMIN_API_URL?.replace(/\/$/, '');
 
   const refreshSupplierSnapshot = useCallback(async () => {

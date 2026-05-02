@@ -157,6 +157,7 @@ export const createSupplierRequest = async ({ itemName, quantity, unit, supplier
     throw error;
   }
 
+  const created = Array.isArray(data) ? data.length > 0 : Boolean(data);
   let row = Array.isArray(data) ? data[0] ?? null : data ?? null;
 
   if (!row && sourceUid) {
@@ -187,7 +188,10 @@ export const createSupplierRequest = async ({ itemName, quantity, unit, supplier
     console.warn('Failed to upsert supplier contact for', supplierEmail, err?.message ?? err);
   }
 
-  return normalizeSupplierRequest(row);
+  return {
+    request: normalizeSupplierRequest(row),
+    created,
+  };
 };
 
 export const listSupplierRequests = async () => {
@@ -447,6 +451,9 @@ const SUPPORTED_HISTORY_DOMAINS = new Set(['orders', 'inventory', 'products', 's
 
 const normalizeHistoryDomain = (domain) => {
   const normalized = String(domain || '').trim();
+  if (normalized === 'supplier_requests') {
+    return 'inventory';
+  }
   return SUPPORTED_HISTORY_DOMAINS.has(normalized) ? normalized : 'inventory';
 };
 
@@ -455,26 +462,45 @@ export const logSystemEvent = async ({ domain, kind, title, detail, entityId, me
   const supabase = getSupabaseClient();
   const eventId = `event-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const normalizedDomain = normalizeHistoryDomain(domain);
+  const basePayload = {
+    id: eventId,
+    kind,
+    title,
+    detail,
+    entity_id: entityId,
+    metadata: {
+      ...metadata,
+      source_domain: String(domain || normalizedDomain),
+    },
+  };
 
   try {
     const { data, error } = await supabase
       .from('system_history_events')
       .insert({
-        id: eventId,
+        ...basePayload,
         domain: normalizedDomain,
-        kind,
-        title,
-        detail,
-        entity_id: entityId,
-        metadata: {
-          ...metadata,
-          source_domain: String(domain || normalizedDomain),
-        },
       })
       .select()
       .single();
 
     if (error) {
+      const errorMessage = String(error?.message ?? error ?? '');
+      if (normalizedDomain === 'supplier_requests' && /check constraint|domain_check/i.test(errorMessage)) {
+        const fallbackResult = await supabase
+          .from('system_history_events')
+          .insert({
+            ...basePayload,
+            domain: 'inventory',
+          })
+          .select()
+          .single();
+
+        if (!fallbackResult.error && fallbackResult.data) {
+          return fallbackResult.data;
+        }
+      }
+
       console.warn('Failed to log system event:', error?.message ?? error);
       return null;
     }
