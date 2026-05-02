@@ -28,6 +28,21 @@ const getEnvFallbackSupplierEmails = () => String(process.env.SUPPLIER_EMAILS ||
 
 const normalizeText = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
+const decodeHtmlEntities = (value) => String(value || '')
+  .replace(/&nbsp;/gi, ' ')
+  .replace(/&amp;/gi, '&')
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;/gi, "'");
+
+const stripHtml = (value) => decodeHtmlEntities(String(value || '')
+  .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+  .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  .replace(/<br\s*\/?\s*>/gi, '\n')
+  .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+  .replace(/<[^>]+>/g, ' '));
+
 const normalizeUnit = (value) => {
   const unit = String(value || '').trim().toLowerCase();
   if (unit === 'l') return 'L';
@@ -54,17 +69,42 @@ const validateSupplierEmail = (sender, supplierEmails) => {
 
 // Enhanced parsing with validation logging
 const parseAndValidateRequest = (body) => {
-  const normalizedBody = String(body || '');
+  const rawBody = String(body || '');
+  const plainBody = stripHtml(rawBody);
+  const bodyCandidates = [rawBody, plainBody].filter((candidate) => String(candidate || '').trim().length > 0);
+
+  const findMatch = (patterns) => {
+    for (const candidate of bodyCandidates) {
+      for (const pattern of patterns) {
+        const match = candidate.match(pattern);
+        if (match) return match;
+      }
+    }
+    return null;
+  };
 
   // Check for minimum body length
-  if (normalizedBody.length < 3) {
+  if (plainBody.length < 3 && rawBody.length < 3) {
     return { valid: false, errors: ['Email body is too short'], parsed: null };
   }
 
-  const labeledItemMatch = normalizedBody.match(/^\s*item\s*:\s*(.+)$/im);
-  const labeledItemIdMatch = normalizedBody.match(/^\s*(?:inventory[_\s-]*id|item[_\s-]*id|id)\s*:\s*([a-zA-Z0-9._-]+)\s*$/im);
-  const labeledQuantityMatch = normalizedBody.match(/^\s*quantity\s*:\s*(\d+(?:\.\d+)?)\b/im);
-  const labeledUnitMatch = normalizedBody.match(/^\s*unit\s*:\s*([a-zA-Z]+)\b/im);
+  const labeledItemMatch = findMatch([
+    /^\s*item\s*[:=-]\s*(.+)$/im,
+    /\bitem\b\s*[:=-]\s*([^\r\n<]+)/i,
+    /\bitem\s+name\b\s*[:=-]\s*([^\r\n<]+)/i,
+  ]);
+  const labeledItemIdMatch = findMatch([
+    /^\s*(?:inventory[_\s-]*id|item[_\s-]*id|id)\s*[:=-]\s*([a-zA-Z0-9._-]+)\s*$/im,
+    /\b(?:inventory[_\s-]*id|item[_\s-]*id|id)\b\s*[:=-]\s*([a-zA-Z0-9._-]+)/i,
+  ]);
+  const labeledQuantityMatch = findMatch([
+    /^\s*quantity\s*[:=-]\s*(\d+(?:\.\d+)?)\b/im,
+    /\b(?:quantity|qty|amount)\b\s*[:=-]\s*(\d+(?:\.\d+)?)/i,
+  ]);
+  const labeledUnitMatch = findMatch([
+    /^\s*unit\s*[:=-]\s*([a-zA-Z]+)\b/im,
+    /\bunit\b\s*[:=-]\s*([a-zA-Z]+)\b/i,
+  ]);
 
   const errors = [];
 
@@ -124,12 +164,37 @@ const extractPlainText = (source) => {
 };
 
 const parseRequestFromBody = (body) => {
-  const normalizedBody = String(body || '');
+  const rawBody = String(body || '');
+  const plainBody = stripHtml(rawBody);
+  const bodyCandidates = [rawBody, plainBody].filter((candidate) => String(candidate || '').trim().length > 0);
 
-  const labeledItemMatch = normalizedBody.match(/^\s*item\s*:\s*(.+)$/im);
-  const labeledItemIdMatch = normalizedBody.match(/^\s*(?:inventory[_\s-]*id|item[_\s-]*id|id)\s*:\s*([a-zA-Z0-9._-]+)\s*$/im);
-  const labeledQuantityMatch = normalizedBody.match(/^\s*quantity\s*:\s*(\d+(?:\.\d+)?)\b/im);
-  const labeledUnitMatch = normalizedBody.match(/^\s*unit\s*:\s*([a-zA-Z]+)\b/im);
+  const findMatch = (patterns) => {
+    for (const candidate of bodyCandidates) {
+      for (const pattern of patterns) {
+        const match = candidate.match(pattern);
+        if (match) return match;
+      }
+    }
+    return null;
+  };
+
+  const labeledItemMatch = findMatch([
+    /^\s*item\s*[:=-]\s*(.+)$/im,
+    /\bitem\b\s*[:=-]\s*([^\r\n<]+)/i,
+    /\bitem\s+name\b\s*[:=-]\s*([^\r\n<]+)/i,
+  ]);
+  const labeledItemIdMatch = findMatch([
+    /^\s*(?:inventory[_\s-]*id|item[_\s-]*id|id)\s*[:=-]\s*([a-zA-Z0-9._-]+)\s*$/im,
+    /\b(?:inventory[_\s-]*id|item[_\s-]*id|id)\b\s*[:=-]\s*([a-zA-Z0-9._-]+)/i,
+  ]);
+  const labeledQuantityMatch = findMatch([
+    /^\s*quantity\s*[:=-]\s*(\d+(?:\.\d+)?)\b/im,
+    /\b(?:quantity|qty|amount)\b\s*[:=-]\s*(\d+(?:\.\d+)?)/i,
+  ]);
+  const labeledUnitMatch = findMatch([
+    /^\s*unit\s*[:=-]\s*([a-zA-Z]+)\b/im,
+    /\bunit\b\s*[:=-]\s*([a-zA-Z]+)\b/i,
+  ]);
 
   if ((labeledItemMatch || labeledItemIdMatch) && labeledQuantityMatch) {
     const requestedItem = labeledItemMatch?.[1]?.trim() || labeledItemIdMatch?.[1]?.trim() || '';
@@ -140,7 +205,9 @@ const parseRequestFromBody = (body) => {
     };
   }
 
-  const compactLineMatch = normalizedBody.match(/^\s*(.+?)\s*[-–—,]\s*(\d+(?:\.\d+)?)(?:\s*([a-zA-Z]+))?\s*$/im);
+  const compactLineMatch = findMatch([
+    /^\s*(.+?)\s*[-–—,]\s*(\d+(?:\.\d+)?)(?:\s*([a-zA-Z]+))?\s*$/im,
+  ]);
   if (compactLineMatch) {
     return {
       itemName: compactLineMatch[1].trim(),
