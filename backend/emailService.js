@@ -257,9 +257,9 @@ const pollInbox = async (client) => {
   const lock = await client.getMailboxLock('INBOX');
 
   try {
-    // Search only matching restock approval subjects so unrelated mail is ignored.
+    // Search only unseen matching restock approval subjects so unrelated or already processed mail is ignored.
     console.log('[POLL] Starting inbox check...');
-    const restockUids = await client.search({ all: true, subject: RESTOCK_APPROVAL_SUBJECT });
+    const restockUids = await client.search({ unseen: true, subject: RESTOCK_APPROVAL_SUBJECT });
     const newestFirstUids = [...restockUids].reverse();
     console.log(`[POLL] Checked inbox. Found ${restockUids.length} restock approval email(s). Active suppliers: ${supplierEmails.join(', ')}`);
 

@@ -443,22 +443,33 @@ export const createInventoryAdjustmentFromSupplierRequest = async (supplierReque
   }
 };
 
+const SUPPORTED_HISTORY_DOMAINS = new Set(['orders', 'inventory', 'products', 'supplier_requests']);
+
+const normalizeHistoryDomain = (domain) => {
+  const normalized = String(domain || '').trim();
+  return SUPPORTED_HISTORY_DOMAINS.has(normalized) ? normalized : 'inventory';
+};
+
 // Helper: Log event to system_history_events
 export const logSystemEvent = async ({ domain, kind, title, detail, entityId, metadata = {} }) => {
   const supabase = getSupabaseClient();
   const eventId = `event-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const normalizedDomain = normalizeHistoryDomain(domain);
 
   try {
     const { data, error } = await supabase
       .from('system_history_events')
       .insert({
         id: eventId,
-        domain,
+        domain: normalizedDomain,
         kind,
         title,
         detail,
         entity_id: entityId,
-        metadata: metadata || {},
+        metadata: {
+          ...metadata,
+          source_domain: String(domain || normalizedDomain),
+        },
       })
       .select()
       .single();

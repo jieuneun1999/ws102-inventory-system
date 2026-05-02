@@ -233,7 +233,7 @@ create table if not exists product_recipes (
 
 create table if not exists system_history_events (
   id text primary key,
-  domain text not null check (domain in ('orders', 'inventory', 'products')),
+  domain text not null check (domain in ('orders', 'inventory', 'products', 'supplier_requests')),
   kind text not null,
   title text not null,
   detail text not null,
