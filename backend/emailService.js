@@ -326,11 +326,11 @@ const pollInbox = async (client) => {
   const lock = await client.getMailboxLock('INBOX');
 
   try {
-    // Search the inbox broadly, then filter locally. Gmail subject search can miss valid messages.
+    // Search only messages with the expected subject to avoid scanning unrelated inbox traffic.
     console.log('[POLL] Starting inbox check...');
-    const restockUids = await client.search({ all: true });
+    const restockUids = await client.search({ all: true, subject: RESTOCK_APPROVAL_SUBJECT });
     const newestFirstUids = [...restockUids].reverse();
-    console.log(`[POLL] Checked inbox. Scanned ${restockUids.length} message(s). Active suppliers: ${supplierEmails.join(', ')}`);
+    console.log(`[POLL] Checked inbox. Found ${restockUids.length} restock approval email(s). Active suppliers: ${supplierEmails.join(', ')}`);
 
     if (restockUids.length > 0) {
       console.log(`[DEBUG] Fetching last 5 for inspection...`);
