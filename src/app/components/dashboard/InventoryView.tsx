@@ -106,6 +106,16 @@ export function InventoryView() {
     return map;
   }, [inventoryAdjustments]);
 
+  const recentConsumptionCountByItem = useMemo(() => {
+    const recentWindowStart = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const map = new Map<string, number>();
+    inventoryAdjustments.forEach((adj) => {
+      if (adj.createdAt < recentWindowStart || adj.delta >= 0) return;
+      map.set(adj.inventoryItemId, (map.get(adj.inventoryItemId) ?? 0) + 1);
+    });
+    return map;
+  }, [inventoryAdjustments]);
+
   const monthRestockAddedByItem = useMemo(() => {
     const monthStartDate = new Date();
     monthStartDate.setDate(1);
@@ -120,11 +130,52 @@ export function InventoryView() {
     return map;
   }, [inventoryAdjustments]);
 
-  const computeForecastDays = (itemId: string, stock: number) => {
+  const computeForecastDays = (itemId: string, stock: number, category?: InventoryItem['category']) => {
+    const WINDOW_DAYS = 14;
     const consumption = recentConsumptionByItem.get(itemId) ?? 0;
-    if (consumption <= 0) return null;
-    const avgDaily = consumption / 14;
-    if (avgDaily <= 0) return null;
+    const events = recentConsumptionCountByItem.get(itemId) ?? 0;
+
+    // Global totals for fallback
+    let totalConsumptionAll = 0;
+    let itemsWithConsumption = 0;
+    const categoryConsumption: Record<string, number> = {} as Record<string, number>;
+    const categoryCounts: Record<string, number> = {} as Record<string, number>;
+    recentConsumptionByItem.forEach((val, id) => {
+      totalConsumptionAll += val;
+      if (val > 0) itemsWithConsumption += 1;
+    });
+
+    // Build category totals
+    inventory.forEach((it) => {
+      const val = recentConsumptionByItem.get(it.id) ?? 0;
+      if (!categoryConsumption[it.category]) categoryConsumption[it.category] = 0;
+      if (!categoryCounts[it.category]) categoryCounts[it.category] = 0;
+      categoryConsumption[it.category] += val;
+      if (val > 0) categoryCounts[it.category] += 1;
+    });
+
+    const globalAvgDailyPerItem = itemsWithConsumption > 0 ? totalConsumptionAll / (WINDOW_DAYS * itemsWithConsumption) : 0;
+    const categoryAvgDailyPerItem = category && (categoryCounts[category] ?? 0) > 0
+      ? categoryConsumption[category] / (WINDOW_DAYS * (categoryCounts[category] ?? 1))
+      : 0;
+
+    let avgDaily = 0;
+
+    if (consumption > 0 && events >= 2) {
+      avgDaily = consumption / WINDOW_DAYS;
+    } else if (consumption > 0 && events < 2) {
+      // low-data: blend item consumption with category/global fallback
+      const itemAvg = consumption / WINDOW_DAYS;
+      avgDaily = itemAvg * 0.6 + (categoryAvgDailyPerItem || globalAvgDailyPerItem) * 0.4;
+    } else if (categoryAvgDailyPerItem > 0) {
+      avgDaily = categoryAvgDailyPerItem;
+    } else if (globalAvgDailyPerItem > 0) {
+      avgDaily = globalAvgDailyPerItem;
+    } else {
+      return null; // truly insufficient data
+    }
+
+    if (!avgDaily || avgDaily <= 0) return null;
     return Math.max(0, Math.round(stock / avgDaily));
   };
 
@@ -267,6 +318,7 @@ export function InventoryView() {
   }, [stockModal]);
 
   const tabs: Tab[] = ['All', 'Ingredients', 'Materials', 'Equipment', 'Add-ons', 'Low Stock'];
+  const [showAllItems, setShowAllItems] = useState(false);
   const addOnInventoryNames = useMemo(
     () => new Set(DRINK_ADD_ONS.map((entry) => entry.inventoryItemName.toLowerCase())),
     []
@@ -556,9 +608,10 @@ export function InventoryView() {
       </div>
 
       {viewMode === 'cards' ? (
+        <>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 items-stretch auto-rows-fr">
           <AnimatePresence initial={false}>
-            {filteredInventory.map((item) => {
+            {filteredInventory.slice(0, showAllItems ? filteredInventory.length : 5).map((item) => {
               const isLow = item.status === 'low';
               const isCapReached = item.status === 'high';
               const tone = getStatusTone(item.status);
@@ -714,6 +767,17 @@ export function InventoryView() {
             })}
           </AnimatePresence>
         </div>
+        {filteredInventory.length > 5 && (
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => setShowAllItems((s) => !s)}
+              className="px-4 py-2 rounded-full bg-white/60 border border-[#D8C4AC]/40 text-sm font-semibold text-[#4D0E13]"
+            >
+              {showAllItems ? 'Show less' : `See more (${filteredInventory.length - 5} more)`}
+            </button>
+          </div>
+        )}
+        </>
       ) : (
         <div className="overflow-auto rounded-2xl border border-[#D8C4AC]/35 bg-white/60 backdrop-blur-xl">
           <table className="w-full text-sm">
@@ -729,8 +793,8 @@ export function InventoryView() {
                 {isAdmin && <th className="text-left px-4 py-3">Actions</th>}
               </tr>
             </thead>
-            <tbody>
-              {filteredInventory.map((item) => {
+              <tbody>
+              {filteredInventory.slice(0, showAllItems ? filteredInventory.length : 5).map((item) => {
                 const isCapReached = item.status === 'high';
                 const tone = getStatusTone(item.status);
                 const forecastDays = computeForecastDays(item.id, item.stock);
@@ -810,6 +874,18 @@ export function InventoryView() {
                   </tr>
                 );
               })}
+              {filteredInventory.length > 5 && (
+                <tr>
+                  <td colSpan={isAdmin ? 8 : 7} className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => setShowAllItems((s) => !s)}
+                      className="px-3 py-2 rounded-full bg-white/60 border border-[#D8C4AC]/40 text-sm font-semibold text-[#4D0E13]"
+                    >
+                      {showAllItems ? 'Show less' : `See more (${filteredInventory.length - 5} more)`}
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

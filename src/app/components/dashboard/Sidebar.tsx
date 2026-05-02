@@ -46,7 +46,7 @@ export function Sidebar({ activeView, setActiveView, darkMode = false }: Sidebar
   return (
     <div className="w-[260px] shrink-0">
       <aside
-        className={`fixed z-20 h-[calc(100vh-7.5rem)] w-[250px] rounded-[2rem] border flex flex-col pt-8 pb-6 px-3 transition-colors duration-300 ${
+        className={`fixed z-20 max-h-[calc(100vh-7.5rem)] w-[250px] rounded-[2rem] border flex flex-col pt-8 pb-4 px-3 transition-colors duration-300 overflow-y-auto ${
           isScrolled
             ? darkMode
               ? 'bg-[#241820]/72 backdrop-blur-2xl border-[#6E4853]/46 shadow-[0_14px_34px_rgba(0,0,0,0.32)]'
@@ -62,7 +62,7 @@ export function Sidebar({ activeView, setActiveView, darkMode = false }: Sidebar
         }}
       >
         {/* Nav */}
-        <nav className="flex flex-col gap-1.5 flex-1">
+        <nav className="flex flex-col gap-1.5">
           {navItems.map((item) => {
             const isActive = activeView === item.id;
             return (
