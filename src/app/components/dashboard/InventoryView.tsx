@@ -318,7 +318,6 @@ export function InventoryView() {
   }, [stockModal]);
 
   const tabs: Tab[] = ['All', 'Ingredients', 'Materials', 'Equipment', 'Add-ons', 'Low Stock'];
-  const [showAllItems, setShowAllItems] = useState(false);
   const addOnInventoryNames = useMemo(
     () => new Set(DRINK_ADD_ONS.map((entry) => entry.inventoryItemName.toLowerCase())),
     []
@@ -608,10 +607,9 @@ export function InventoryView() {
       </div>
 
       {viewMode === 'cards' ? (
-        <>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 items-stretch auto-rows-fr">
           <AnimatePresence initial={false}>
-            {filteredInventory.slice(0, showAllItems ? filteredInventory.length : 5).map((item) => {
+            {filteredInventory.map((item) => {
               const isLow = item.status === 'low';
               const isCapReached = item.status === 'high';
               const tone = getStatusTone(item.status);
@@ -767,17 +765,6 @@ export function InventoryView() {
             })}
           </AnimatePresence>
         </div>
-        {filteredInventory.length > 5 && (
-          <div className="mt-4 text-center">
-            <button
-              onClick={() => setShowAllItems((s) => !s)}
-              className="px-4 py-2 rounded-full bg-white/60 border border-[#D8C4AC]/40 text-sm font-semibold text-[#4D0E13]"
-            >
-              {showAllItems ? 'Show less' : `See more (${filteredInventory.length - 5} more)`}
-            </button>
-          </div>
-        )}
-        </>
       ) : (
         <div className="overflow-auto rounded-2xl border border-[#D8C4AC]/35 bg-white/60 backdrop-blur-xl">
           <table className="w-full text-sm">
@@ -794,7 +781,7 @@ export function InventoryView() {
               </tr>
             </thead>
               <tbody>
-              {filteredInventory.slice(0, showAllItems ? filteredInventory.length : 5).map((item) => {
+              {filteredInventory.map((item) => {
                 const isCapReached = item.status === 'high';
                 const tone = getStatusTone(item.status);
                 const forecastDays = computeForecastDays(item.id, item.stock);
@@ -874,18 +861,6 @@ export function InventoryView() {
                   </tr>
                 );
               })}
-              {filteredInventory.length > 5 && (
-                <tr>
-                  <td colSpan={isAdmin ? 8 : 7} className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => setShowAllItems((s) => !s)}
-                      className="px-3 py-2 rounded-full bg-white/60 border border-[#D8C4AC]/40 text-sm font-semibold text-[#4D0E13]"
-                    >
-                      {showAllItems ? 'Show less' : `See more (${filteredInventory.length - 5} more)`}
-                    </button>
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

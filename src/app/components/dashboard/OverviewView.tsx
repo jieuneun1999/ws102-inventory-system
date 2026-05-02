@@ -25,6 +25,7 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
   const lastSyncedAt = useAppStore((state) => state.lastSyncedAt);
   const [inventoryTab, setInventoryTab] = useState<'All Items' | 'Ingredients' | 'Materials & Equipment'>('All Items');
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [showAllInventory, setShowAllInventory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [latestShiftSession, setLatestShiftSession] = useState<ShiftSessionSummary | null>(null);
   const [latestReconciliation, setLatestReconciliation] = useState<PaymentReconciliationReportSummary | null>(null);
@@ -143,6 +144,11 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
     if (deferredSearchQuery && !item.name.toLowerCase().includes(deferredSearchQuery)) return false;
     return true;
   }), [deferredSearchQuery, inventory, inventoryTab, showLowStockOnly]);
+
+  const visibleInventory = useMemo(
+    () => (showAllInventory ? filteredInventory : filteredInventory.slice(0, 5)),
+    [filteredInventory, showAllInventory]
+  );
 
   const getStatusTone = (status: (typeof inventory)[number]['status']) => {
     if (status === 'low') return { bar: 'bg-[#D9534F]', chip: 'bg-red-100 text-red-700' };
@@ -452,7 +458,8 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
             {filteredInventory.length === 0 ? (
               <p className="text-center text-[#4D0E13]/50 text-sm mt-10">No items match the current filters.</p>
             ) : (
-              filteredInventory.map((item) => {
+              <>
+                {visibleInventory.map((item) => {
                 const isLow = item.status === 'low';
                 const progress = Math.min(100, Math.max(0, (item.stock / (item.reorderLevel * 3)) * 100));
                 
@@ -503,7 +510,19 @@ export function OverviewView({ onNavigate }: OverviewViewProps) {
                     </button>
                   </div>
                 );
-              })
+                })}
+
+                {filteredInventory.length > 5 && (
+                  <div className="pt-2 pb-1 flex justify-center">
+                    <button
+                      onClick={() => setShowAllInventory((prev) => !prev)}
+                      className="rounded-full border border-[#D8C4AC]/40 bg-white/70 px-4 py-2 text-xs font-semibold text-[#4D0E13] hover:bg-white/90 transition-colors"
+                    >
+                      {showAllInventory ? 'Show less' : `See more (${filteredInventory.length - 5} more)`}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
